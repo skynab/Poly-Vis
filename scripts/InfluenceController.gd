@@ -13,8 +13,10 @@ const MAX_INFLUENCES := 8
 signal proximity_entered(influence: InfluenceObject, target: Node3D)
 signal proximity_exited(influence: InfluenceObject, target: Node3D)
 
-## Demo reaction: restart a particle system when an influence enters it.
-@export var burst_on_enter: bool = true
+## Demo reaction: restart a particle system when an influence enters it. Off by
+## default — with a follow-mouse influence it would restart constantly as the
+## influence crosses the system's bounds, visibly resetting the particles.
+@export var burst_on_enter: bool = false
 
 var _manager: VisualizationManager
 var _camera: Camera3D
@@ -48,8 +50,24 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _update_follow() -> void:
 	for infl in _influences():
-		if infl.follow_mouse:
+		if infl.track_rigid_body:
+			infl.global_position = _optitrack_pos(infl)
+		elif infl.follow_mouse:
 			infl.global_position = _project_mouse(infl.global_position)
+
+## Position from an OptiTrack rigid body via the OptiTrack autoload. Defensive:
+## if the plugin isn't installed, the autoload is absent, or Motive isn't
+## connected, the influence simply holds its current position (no error).
+func _optitrack_pos(infl: InfluenceObject) -> Vector3:
+	# Use call() so the plugin-specific methods dispatch dynamically — the script
+	# compiles even when the OptiTrack GDExtension / autoload isn't present.
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null or not ot.has_method("get_rigid_body_pos"):
+		return infl.global_position
+	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
+		return infl.global_position
+	var p: Vector3 = ot.call("get_rigid_body_pos", infl.rigid_body_asset_id)
+	return p + infl.track_position_offset
 
 ## Project the mouse onto a camera-facing plane through plane_point.
 func _project_mouse(plane_point: Vector3) -> Vector3:
@@ -104,7 +122,15 @@ func _push_uniforms() -> void:
 			colors.append(Vector3.ZERO)
 
 	for o in _manager.objects:
-		if o.has_method("set_influences"):
+		if not o.has_method("set_influences"):
+			continue
+		# A "follow influence" particle system tracks the active influence's
+		# position (its emitter rides along) and receives no pushing force.
+		if o is PolyParticles and (o as PolyParticles).follow_influence:
+			if not active.is_empty():
+				o.global_position = active[0].global_position
+			o.set_influences(0, positions, radii, strengths, colors)
+		else:
 			o.set_influences(active.size(), positions, radii, strengths, colors)
 
 # --- proximity events (Prompt 5.4) -----------------------------------------

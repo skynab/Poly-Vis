@@ -20,11 +20,19 @@ run/main_scene="res://scenes/Main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+OptiTrack="*res://addons/optitrack_plugin/optitrack.gd"
+
 [display]
 
 window/size/viewport_width=1600
 window/size/viewport_height=900
 window/stretch/mode="canvas_items"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/optitrack_plugin/optitrack_control_panel/plugin.cfg", "res://addons/optitrack_plugin/optitrack_rigid_body/plugin.cfg", "res://addons/optitrack_plugin/optitrack_rigid_body_inspector/plugin.cfg", "res://addons/optitrack_plugin/optitrack_skeleton/plugin.cfg", "res://addons/optitrack_plugin/optitrack_skeleton_inspector/plugin.cfg", "res://addons/optitrack_plugin/plugin.cfg")
 
 [rendering]
 

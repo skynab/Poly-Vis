@@ -14,7 +14,7 @@ enum EmitterShape { POINT, SPHERE, BOX, MESH_SURFACE }
 enum ColorSource { HEIGHT, DISTANCE, AGE, VELOCITY, NOISE }
 ## Shape of each particle's draw mesh. All shapes are built at unit scale;
 ## particle_size in the shader controls actual world size.
-enum ParticleShape { SPHERE, TETRA, SHARD, DISC, SPARK }
+enum ParticleShape { SPHERE, TETRA, SHARD, DISC, SPARK, STREAK }
 
 const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 
@@ -23,6 +23,9 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 @export_range(0.1, 30.0) var particle_lifetime: float = 6.0: set = set_particle_lifetime
 @export var emitter_shape: EmitterShape = EmitterShape.SPHERE: set = set_emitter_shape
 @export var emitter_extents: Vector3 = Vector3(1.5, 1.5, 1.5): set = set_emitter_extents
+## Uniform scale on the spawn volume — raise it to spread particles over a larger
+## area (lower density) without changing the count.
+@export_range(0.1, 8.0) var emitter_size: float = 1.0: set = set_emitter_size
 @export var particle_shape: ParticleShape = ParticleShape.SPHERE: set = set_particle_shape
 @export_range(0.01, 0.5) var particle_size: float = 0.04: set = set_particle_size
 ## Shrink each particle from full size to zero over its lifetime.
@@ -61,6 +64,27 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 ## Scalar multiplied against final particle color.  Use to brighten particles
 ## relative to the background mesh without touching the shared colormap.
 @export_range(0.0, 4.0) var particle_brightness: float = 1.0: set = set_particle_brightness
+
+@export_group("Palette")
+## When any palette slot is enabled, each particle takes a flat random color from
+## the enabled slots — overrides colormap / color_a-b. Toggle slots on/off freely.
+@export var palette_enable_1: bool = false: set = set_palette_enable_1
+@export var palette_color_1: Color = Color(1.0, 0.2, 0.4): set = set_palette_color_1
+@export var palette_enable_2: bool = false: set = set_palette_enable_2
+@export var palette_color_2: Color = Color(1.0, 0.6, 0.1): set = set_palette_color_2
+@export var palette_enable_3: bool = false: set = set_palette_enable_3
+@export var palette_color_3: Color = Color(1.0, 0.95, 0.3): set = set_palette_color_3
+@export var palette_enable_4: bool = false: set = set_palette_enable_4
+@export var palette_color_4: Color = Color(0.3, 1.0, 0.5): set = set_palette_color_4
+@export var palette_enable_5: bool = false: set = set_palette_enable_5
+@export var palette_color_5: Color = Color(0.2, 0.7, 1.0): set = set_palette_color_5
+@export var palette_enable_6: bool = false: set = set_palette_enable_6
+@export var palette_color_6: Color = Color(0.7, 0.3, 1.0): set = set_palette_color_6
+
+@export_group("Interaction")
+## When true the InfluenceController moves this system to the active influence's
+## position each frame (the emitter follows it) and applies no influence force.
+@export var follow_influence: bool = false
 
 var _mat: ShaderMaterial
 var _budget_cooldown: float = 0.0
@@ -112,6 +136,7 @@ func _make_particle_mesh() -> Mesh:
 		ParticleShape.SHARD: return _build_shard()
 		ParticleShape.DISC:  return _build_disc()
 		ParticleShape.SPARK: return _build_spark()
+		ParticleShape.STREAK: return _build_streak()
 		_:                   return _build_sphere()
 
 ## Shared material: unlit + double-sided so tiny geometry never shows shading artefacts.
@@ -188,6 +213,23 @@ func _build_spark() -> ArrayMesh:
 		faces.append([0, i + 1, ((i + 1) % 8) + 1])
 	return _tris_to_mesh(verts, faces)
 
+## Thin tall box — a vertical streak. With rotation_speed 0 it stays upright in
+## world space, reading as a falling-rain streak. ~16:1 aspect.
+func _build_streak() -> ArrayMesh:
+	var hx := 0.08
+	var hy := 1.6
+	var hz := 0.08
+	var v := [
+		Vector3(-hx, -hy, -hz), Vector3(hx, -hy, -hz), Vector3(hx, hy, -hz), Vector3(-hx, hy, -hz),
+		Vector3(-hx, -hy, hz), Vector3(hx, -hy, hz), Vector3(hx, hy, hz), Vector3(-hx, hy, hz),
+	]
+	# cull is disabled, so winding is irrelevant; 12 tris covering the 6 faces.
+	var faces := [
+		[4,5,6],[4,6,7], [0,2,1],[0,3,2], [0,7,3],[0,4,7],
+		[1,2,6],[1,6,5], [3,7,6],[3,6,2], [0,1,5],[0,5,4],
+	]
+	return _tris_to_mesh(v, faces)
+
 func _apply_all() -> void:
 	amount = max(count, 1)
 	lifetime = particle_lifetime
@@ -198,7 +240,7 @@ func _apply_all() -> void:
 	_mat.set_shader_parameter("u_size_curve", particle_size_curve)
 	_mat.set_shader_parameter("u_rotation_speed", particle_rotation_speed)
 	_mat.set_shader_parameter("u_emitter_shape", int(emitter_shape))
-	_mat.set_shader_parameter("u_emitter_extents", emitter_extents)
+	_push_emitter_extents()
 	_mat.set_shader_parameter("u_direction", direction)
 	_mat.set_shader_parameter("u_initial_speed", initial_speed)
 	_mat.set_shader_parameter("u_spread", spread)
@@ -211,7 +253,30 @@ func _apply_all() -> void:
 	_mat.set_shader_parameter("u_color_a", color_a)
 	_mat.set_shader_parameter("u_color_b", color_b)
 	_apply_colormap()
+	_apply_palette()
 	_bake_emission_points()
+
+## Push the spawn volume, scaled uniformly by emitter_size.
+func _push_emitter_extents() -> void:
+	_set_param("u_emitter_extents", emitter_extents * emitter_size)
+
+## Collect the enabled palette slots into the shader's fixed 6-slot array.
+func _apply_palette() -> void:
+	if not _mat:
+		return
+	var enables: Array[bool] = [palette_enable_1, palette_enable_2, palette_enable_3,
+			palette_enable_4, palette_enable_5, palette_enable_6]
+	var colors: Array[Color] = [palette_color_1, palette_color_2, palette_color_3,
+			palette_color_4, palette_color_5, palette_color_6]
+	var active := PackedColorArray()
+	for i in 6:
+		if enables[i]:
+			active.append(colors[i])
+	var n := active.size()
+	while active.size() < 6:
+		active.append(Color.BLACK)
+	_mat.set_shader_parameter("u_palette", active)
+	_mat.set_shader_parameter("u_palette_count", n)
 
 func _apply_colormap() -> void:
 	if not _mat:
@@ -271,7 +336,11 @@ func set_emitter_shape(v: EmitterShape) -> void:
 
 func set_emitter_extents(v: Vector3) -> void:
 	emitter_extents = v
-	_set_param("u_emitter_extents", v)
+	_push_emitter_extents()
+
+func set_emitter_size(v: float) -> void:
+	emitter_size = v
+	_push_emitter_extents()
 
 func set_emission_source(v: NodePath) -> void:
 	emission_source = v
@@ -349,6 +418,54 @@ func set_particle_brightness(v: float) -> void:
 	particle_brightness = v
 	_set_param("u_particle_brightness", v)
 
+func set_palette_enable_1(v: bool) -> void:
+	palette_enable_1 = v
+	_apply_palette()
+
+func set_palette_enable_2(v: bool) -> void:
+	palette_enable_2 = v
+	_apply_palette()
+
+func set_palette_enable_3(v: bool) -> void:
+	palette_enable_3 = v
+	_apply_palette()
+
+func set_palette_enable_4(v: bool) -> void:
+	palette_enable_4 = v
+	_apply_palette()
+
+func set_palette_enable_5(v: bool) -> void:
+	palette_enable_5 = v
+	_apply_palette()
+
+func set_palette_enable_6(v: bool) -> void:
+	palette_enable_6 = v
+	_apply_palette()
+
+func set_palette_color_1(v: Color) -> void:
+	palette_color_1 = v
+	_apply_palette()
+
+func set_palette_color_2(v: Color) -> void:
+	palette_color_2 = v
+	_apply_palette()
+
+func set_palette_color_3(v: Color) -> void:
+	palette_color_3 = v
+	_apply_palette()
+
+func set_palette_color_4(v: Color) -> void:
+	palette_color_4 = v
+	_apply_palette()
+
+func set_palette_color_5(v: Color) -> void:
+	palette_color_5 = v
+	_apply_palette()
+
+func set_palette_color_6(v: Color) -> void:
+	palette_color_6 = v
+	_apply_palette()
+
 func set_colormap(v: GradientColormap) -> void:
 	if colormap and colormap.changed.is_connected(_apply_colormap):
 		colormap.changed.disconnect(_apply_colormap)
@@ -389,7 +506,8 @@ func get_param_schema() -> Array:
 			{"name": "particle_lifetime", "type": "float", "min": 0.1, "max": 30.0, "step": 0.1},
 			{"name": "emitter_shape", "type": "enum", "options": ["Point", "Sphere", "Box", "Mesh Surface"]},
 			{"name": "emitter_extents", "type": "vector3"},
-			{"name": "particle_shape", "type": "enum", "options": ["Sphere", "Tetra", "Shard", "Disc", "Spark"]},
+			{"name": "emitter_size", "type": "float", "min": 0.1, "max": 8.0, "step": 0.05},
+			{"name": "particle_shape", "type": "enum", "options": ["Sphere", "Tetra", "Shard", "Disc", "Spark", "Streak"]},
 			{"name": "particle_size", "type": "float", "min": 0.01, "max": 0.5, "step": 0.005},
 			{"name": "particle_size_curve", "type": "bool"},
 			{"name": "particle_rotation_speed", "type": "float", "min": 0.0, "max": 10.0, "step": 0.1},
@@ -418,5 +536,22 @@ func get_param_schema() -> Array:
 			{"name": "color_a", "type": "color"},
 			{"name": "color_b", "type": "color"},
 			{"name": "particle_brightness", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
+		]},
+		{"title": "Palette", "props": [
+			{"name": "palette_enable_1", "type": "bool"},
+			{"name": "palette_color_1", "type": "color"},
+			{"name": "palette_enable_2", "type": "bool"},
+			{"name": "palette_color_2", "type": "color"},
+			{"name": "palette_enable_3", "type": "bool"},
+			{"name": "palette_color_3", "type": "color"},
+			{"name": "palette_enable_4", "type": "bool"},
+			{"name": "palette_color_4", "type": "color"},
+			{"name": "palette_enable_5", "type": "bool"},
+			{"name": "palette_color_5", "type": "color"},
+			{"name": "palette_enable_6", "type": "bool"},
+			{"name": "palette_color_6", "type": "color"},
+		]},
+		{"title": "Interaction", "props": [
+			{"name": "follow_influence", "type": "bool"},
 		]},
 	]

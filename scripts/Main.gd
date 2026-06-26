@@ -17,6 +17,7 @@ var undo: UndoHistory
 var gizmo: SelectionGizmo
 var input_mgr: InputManager
 var scene_env: SceneEnvironment
+var hud_logo: HudLogo
 var _fps_label: Label
 
 func _ready() -> void:
@@ -53,7 +54,13 @@ func _ready() -> void:
 	scene_env = SceneEnvironment.new()
 	scene_env.bind(world_env.environment)
 
-	panel.setup(manager, camera, capture, undo, scene_env)
+	# HUD logo overlay — its own CanvasLayer (kept visible during capture, so the
+	# logo watermarks screenshots/recordings). Added to Main, not $UI.
+	hud_logo = HudLogo.new()
+	hud_logo.name = "HudLogo"
+	add_child(hud_logo)
+
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo)
 	influence.setup(manager, camera)
 	input_mgr.setup(manager, camera, panel, undo)
 

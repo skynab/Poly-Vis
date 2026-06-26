@@ -29,6 +29,15 @@ const CLOTH_SHADER := preload("res://shaders/polycloth.gdshader")
 @export_range(0.0, 2.0) var fold: float = 0.6: set = set_fold
 @export var noise_seed: int = 0: set = set_noise_seed
 
+@export_group("Curvature")
+## Master strength of the large-scale warp that bends the whole sheet into a
+## complex 3D form (bowl / saddle / scroll / twist). 0 == flat draped sheet.
+@export_range(0.0, 6.0) var curvature_amount: float = 0.0: set = set_curvature_amount
+## How many superimposed bend lobes — higher folds the form more intricately.
+@export_range(1, 8) var curvature_complexity: int = 3: set = set_curvature_complexity
+## Seeds the random curvature. Each value yields a unique, reproducible shape.
+@export var shape_seed: int = 0: set = set_shape_seed
+
 @export_group("Rendering")
 @export_range(0.0, 1.0) var surface_roughness: float = 0.85: set = set_surface_roughness
 @export_range(0.0, 1.0) var surface_metallic: float = 0.0: set = set_surface_metallic
@@ -105,6 +114,8 @@ func _build_surface() -> void:
 	lateral.seed = noise_seed + 1337
 	lateral.frequency = frequency * 1.7
 
+	var lobes := _build_curvature_lobes()
+
 	# Sample a (res+1)^2 grid of crumpled positions, plus the per-vertex height
 	# noise and fold magnitude (packed into aux for the shader's color sources).
 	var n := resolution + 1
@@ -121,7 +132,9 @@ func _build_surface() -> void:
 			var fx := lateral.get_noise_2d(x + 100.0, z) * fold * amplitude
 			var fz := lateral.get_noise_2d(x, z + 100.0) * fold * amplitude
 			var idx := gz * n + gx
-			pts[idx] = Vector3(x + fx, hn * amplitude, z + fz)
+			var p := Vector3(x + fx, hn * amplitude, z + fz)
+			p += _curvature_offset(lobes, x / extent, z / extent)
+			pts[idx] = p
 			aux[idx] = Vector2(hn, sqrt(fx * fx + fz * fz))
 
 	var st := SurfaceTool.new()
@@ -149,6 +162,50 @@ func _emit_tri(st: SurfaceTool, pts: PackedVector3Array, aux: PackedVector2Array
 	st.set_uv2(aux[a]); st.add_vertex(pts[a])
 	st.set_uv2(aux[b]); st.add_vertex(pts[b])
 	st.set_uv2(aux[c]); st.add_vertex(pts[c])
+
+## Deterministically derive the large-scale warp from shape_seed. Each lobe is a
+## smooth low-frequency bend along a random axis; summed they fold the sheet into
+## a complex form. Same seed → same shape, so it serializes as a single int.
+func _build_curvature_lobes() -> Array:
+	var lobes: Array = []
+	if curvature_amount <= 0.0001:
+		return lobes
+	var rng := RandomNumberGenerator.new()
+	rng.seed = shape_seed
+	for _k in curvature_complexity:
+		var a := Vector3(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0),
+				rng.randf_range(-1.0, 1.0))
+		if a.length() < 0.01:
+			a = Vector3.UP
+		lobes.append({
+			"axis": a.normalized(),
+			"freq": Vector2(rng.randf_range(0.3, 1.7), rng.randf_range(0.3, 1.7)),
+			"phase": Vector2(rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU)),
+			"amp": rng.randf_range(0.4, 1.0),
+		})
+	return lobes
+
+## Sum the lobe displacements at normalized planar coords (u, v in [-1, 1]).
+func _curvature_offset(lobes: Array, u: float, v: float) -> Vector3:
+	if lobes.is_empty():
+		return Vector3.ZERO
+	var d := Vector3.ZERO
+	for lobe in lobes:
+		var f: Vector2 = lobe["freq"]
+		var ph: Vector2 = lobe["phase"]
+		var w := sin(u * PI * f.x + ph.x) * cos(v * PI * f.y + ph.y)
+		d += (lobe["axis"] as Vector3) * (w * float(lobe["amp"]))
+	return d * curvature_amount
+
+## Generate a fresh unique shape: new crumple + curvature seeds. Ensures the
+## warp is actually visible by giving curvature_amount a value if it was off.
+func randomize_shape() -> void:
+	# Each assignment runs its setter (which rebuilds); the final shape_seed
+	# assignment does the authoritative rebuild with all new values applied.
+	if curvature_amount < 0.05:
+		curvature_amount = randf_range(1.5, 3.5)
+	noise_seed = randi() % 10000
+	shape_seed = randi() % 10000
 
 func _update_anim_uniforms() -> void:
 	if not _surface_mat:
@@ -207,6 +264,18 @@ func set_fold(v: float) -> void:
 
 func set_noise_seed(v: int) -> void:
 	noise_seed = v
+	rebuild()
+
+func set_curvature_amount(v: float) -> void:
+	curvature_amount = v
+	rebuild()
+
+func set_curvature_complexity(v: int) -> void:
+	curvature_complexity = clampi(v, 1, 8)
+	rebuild()
+
+func set_shape_seed(v: int) -> void:
+	shape_seed = v
 	rebuild()
 
 func set_surface_roughness(v: float) -> void:
@@ -322,6 +391,13 @@ func get_param_schema() -> Array:
 			{"name": "warp", "type": "float", "min": 0.0, "max": 3.0, "step": 0.05},
 			{"name": "fold", "type": "float", "min": 0.0, "max": 2.0, "step": 0.02},
 			{"name": "noise_seed", "type": "int", "min": 0, "max": 9999, "step": 1},
+		]},
+		{"title": "Curvature", "props": [
+			{"name": "curvature_amount", "type": "float", "min": 0.0, "max": 6.0, "step": 0.05},
+			{"name": "curvature_complexity", "type": "int", "min": 1, "max": 8, "step": 1},
+			{"name": "shape_seed", "type": "int", "min": 0, "max": 9999, "step": 1},
+			{"name": "randomize_shape", "type": "action", "label": "Randomize Shape",
+				"hint": "Generate a unique curvature + crumple from new random seeds"},
 		]},
 		{"title": "Rendering", "props": [
 			{"name": "surface_roughness", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},

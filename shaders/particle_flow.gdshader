@@ -31,6 +31,11 @@ uniform float u_particle_brightness = 1.0; // multiplies final COLOR.rgb before 
 uniform vec3 u_color_a : source_color = vec3(0.1, 0.8, 0.7);
 uniform vec3 u_color_b : source_color = vec3(0.95, 0.95, 0.2);
 
+// Palette mode (up to 6 colors). When u_palette_count > 0 each particle takes a
+// flat random color from the active palette — overrides colormap / a-b lerp.
+uniform int u_palette_count = 0;
+uniform vec4 u_palette[6] : source_color;
+
 // Shared colormap (Prompt 3.1). When disabled, falls back to a/b lerp by age.
 uniform sampler2D u_colormap : source_color, filter_linear;
 uniform bool u_use_colormap = false;
@@ -211,7 +216,11 @@ void process() {
 		cval = snoise(pos * u_flow_scale);
 	}
 	float ct = clamp((cval - u_color_range.x) / max(u_color_range.y - u_color_range.x, 0.0001), 0.0, 1.0);
-	if (u_use_colormap) {
+	if (u_palette_count > 0) {
+		// Flat per-particle color drawn from the active palette via the seed.
+		int pi = min(int(CUSTOM.x * float(u_palette_count)), u_palette_count - 1);
+		COLOR = vec4(u_palette[pi].rgb, 1.0);
+	} else if (u_use_colormap) {
 		COLOR = vec4(texture(u_colormap, vec2(ct, 0.5)).rgb, 1.0);
 	} else {
 		COLOR = vec4(mix(u_color_a, u_color_b, CUSTOM.y), 1.0);

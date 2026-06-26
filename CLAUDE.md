@@ -11,7 +11,8 @@ GPU particle flow fields, and interactive influence fields.
 scripts/          GDScript source — one class per file, named to match the class
 shaders/          GLSL shaders — one per visual system
 scenes/           Main.tscn (editor), ParticleDemo.tscn (standalone demo)
-resources/        Empty at runtime; assets go here
+resources/        logos/ holds the bundled HUD logo PNGs; other assets go here
+addons/           Third-party plugins (optitrack_plugin — see OptiTrack section)
 CLAUDE.md         This file
 ```
 
@@ -33,8 +34,9 @@ Main [Node3D]                  Main.gd — root coordinator
 ├── InfluenceController        Pushes influence uniforms each frame
 ├── CaptureManager             Added at runtime — screenshot + recording
 ├── InputManager               Added at runtime — keyboard shortcuts
+├── HudLogo [CanvasLayer]      Added at runtime — logo overlay (layer 0, in captures)
 │
-└── UI [CanvasLayer]
+└── UI [CanvasLayer]           layer 1 — hidden during capture
     ├── ParameterPanel         Right-docked control panel (340 px)
     └── FPS label              Top-left corner, added at runtime
 ```
@@ -71,6 +73,20 @@ configured distances, rebuilds only when the level changes.
 `GPUParticles3D` with a custom `shader_type particles` process material
 (`particle_flow.gdshader`). Emitter shapes: Point, Sphere, Box, Mesh Surface.
 Mesh-surface emission bakes target vertices into a `FORMAT_RGBF` `ImageTexture`.
+`emitter_size` scales the spawn volume uniformly (raise it to lower density
+without changing count — pushed as `u_emitter_extents * emitter_size`).
+
+Particle draw shapes (`particle_shape`): Sphere, Tetra, Shard, Disc, Spark,
+Streak. Streak is a thin tall box that stays upright (rotation 0) for falling-rain
+looks. All built at unit scale; `particle_size` sets world size in the shader.
+
+Color: colormap OR `color_a`/`color_b` lerp OR a **palette** of up to 6 toggleable
+colors (`palette_enable_1..6` + `palette_color_1..6`). `_apply_palette()` packs the
+enabled slots into `u_palette[6]` + `u_palette_count`; when count > 0 each particle
+takes a flat random palette color (overrides colormap/lerp), else the old paths.
+
+`follow_influence`: when true the InfluenceController moves the whole system to the
+active influence's position each frame (emitter rides along) and applies no force.
 
 Auto-budget (`auto_budget`, `budget_target_fps`): `_process` samples FPS once
 per second and scales `amount` proportionally to keep near the target FPS.
@@ -86,6 +102,15 @@ no wireframe/lattice. Setters mirror PolyMesh (`rebuild` for geometry,
 `_apply_color_and_polish` / `_update_anim_uniforms` otherwise). Implements
 `set_influences()` — folds dent under influence spheres like the mesh.
 
+Curvature warp (`curvature_amount`, `curvature_complexity`, `shape_seed`): a
+large-scale 3D bend layered on top of the crumple, folding the sheet into bowls
+/ saddles / scrolls. `_build_curvature_lobes()` derives `curvature_complexity`
+smooth low-freq bend lobes deterministically from `shape_seed` (RNG); each
+vertex sums them via `_curvature_offset(u, v)`. Same seed → same shape, so the
+whole form serializes as one int. `randomize_shape()` (exposed as an `action`
+button) re-seeds `noise_seed` + `shape_seed` for a fresh unique shape and forces
+`curvature_amount` on if it was zero.
+
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
 scroll wheel zooms. Exposes `get_param_schema()` so the panel shows camera
@@ -95,13 +120,24 @@ controls alongside object controls.
 Movable sphere with translucent shell + solid core. Two modes: ATTRACT
 (positive signed_strength) or REPEL (negative). When `follow_mouse = true`
 the InfluenceController projects the mouse onto a plane through the influence's
-world position.
+world position. `show_visual = false` hides the shell/core meshes (via per-mesh
+visibility, not node visibility) while the influence keeps acting — feel the
+effect without seeing the source. Meshes show only when `enabled and show_visual`.
+`track_rigid_body = true` drives its position from an OptiTrack rigid body
+(`rigid_body_asset_id` + `track_position_offset`) instead of the mouse — see
+"OptiTrack motion capture" below.
 
 ### InfluenceController
 Runs each frame: gathers enabled influences → packs into fixed-size arrays
-(max 8) → calls `set_influences()` on every managed object. Also handles
-left-mouse drag on the selected influence and fires `proximity_entered` /
-`proximity_exited` signals when influences cross object boundaries.
+(max 8) → calls `set_influences()` on every managed object. Per influence,
+`_update_follow()` positions it from an OptiTrack rigid body (`track_rigid_body`,
+via `_optitrack_pos()`), else from the mouse (`follow_mouse`). A PolyParticles with
+`follow_influence` is instead moved to the active influence's position and gets a
+0-count (no force). Also handles left-mouse drag on the selected influence and
+fires `proximity_entered` / `proximity_exited` signals when influences cross object
+boundaries. `burst_on_enter` (restart particles on proximity-enter) defaults OFF —
+a follow-mouse influence would otherwise reset particles constantly as it crosses
+the bounds.
 
 ### GradientColormap
 `Resource` wrapping a `Gradient` and baking it to a `GradientTexture1D`.
@@ -121,26 +157,43 @@ Auto-generates controls from `get_param_schema()` arrays. Schema format:
       { "name": "my_mode", "type": "enum", "options": ["A", "B", "C"] },
       { "name": "my_vec",  "type": "vector3" },
       { "name": "colormap","type": "colormap_preset" },
+      { "name": "my_method", "type": "action", "label": "Do It", "hint": "..." },
   ]}
 ]
 ```
 
 Supported types: `float`, `int`, `bool`, `color`, `enum`, `vector3`,
-`colormap_preset`. Sliders record undo on `drag_ended`; booleans and enums
-record immediately. Colors record on `popup_closed`.
+`colormap_preset`, `action`. Sliders record undo on `drag_ended`; booleans and
+enums record immediately. Colors record on `popup_closed`. An `action` prop
+renders a button that calls `obj.<name>()` then refreshes the object's controls;
+it stores no value and CompositionIO skips it during (de)serialization.
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
-→ capture/record → status line → hint bar → camera section → object sections.
+→ capture/record → status line → hint bar → camera → scene → HUD logo → object
+sections. Camera/scene/hud are global modules in a static area; managed-object
+controls render in `_object_host` below them.
+
+### HudLogo
+`CanvasLayer` overlay showing a logo over the front of the view. Bundles the
+OptiTrack white/black PNGs (`resources/logos/`) as presets via the `logo` enum,
+plus a `custom_path` for any imported image (`import_logo()` action opens a file
+dialog; external paths load through `Image.load_from_file`). Controls `corner`,
+`size_scale`, `opacity`, `margin`. Sits at `layer = 0` (below the panel's
+CanvasLayer, above the 3D view) and is NOT the CaptureManager's `ui_layer`, so it
+stays visible in screenshots/recordings as a watermark. Schema-driven like
+SceneEnvironment; serialized under `"hud"`. `custom_path` is a `"string"` schema
+prop — serialized but rendered with no panel control (set via the Import button).
 
 ### CompositionIO
-Stateless serializer. `serialize(manager, camera, scene=null)` → Dictionary;
-`apply(data, manager, camera, scene=null)` → rebuilds scene from Dictionary.
-File I/O: `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`, Vector3 →
-`[x,y,z]`, enums → int, colormaps → `{"preset": N, "offsets": [], "colors": []}`.
-Camera and `scene` (SceneEnvironment) are each serialized by walking their
-`get_param_schema()` via the shared `_schema_to_dict` / `_dict_to_schema`
-helpers. On load, if `scene` is supplied but the composition has no `"scene"`
-block, `scene.reset_defaults()` restores the white room first.
+Stateless serializer. `serialize(manager, camera, scene=null, hud=null)` →
+Dictionary; `apply(data, manager, camera, scene=null, hud=null)` → rebuilds from
+Dictionary. File I/O: `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
+Vector3 → `[x,y,z]`, enums → int, strings → as-is, colormaps →
+`{"preset": N, "offsets": [], "colors": []}`. Camera, `scene` (SceneEnvironment),
+and `hud` (HudLogo) are each serialized by walking their `get_param_schema()` via
+the shared `_schema_to_dict` / `_dict_to_schema` helpers. On load, if `scene` /
+`hud` are supplied but the composition lacks their block, `reset_defaults()`
+restores the white room / clears the logo first.
 
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
@@ -173,10 +226,12 @@ and UndoHistory. Full shortcut list in the script header comment.
 
 ### BuiltInPresets
 Const dictionary of CompositionIO-compatible scenes (Default, Neon Rain, Petal
-Storm, Crumpled Silk, Crystal Lattice, Lava Flow, Aurora, Void Sphere). Applied
-by the preset dropdown in the panel. Neon Rain is the only one that ships a
-`"scene"` block (dark room + bloom) and stacks two PolyParticles layers plus a
-follow-mouse influence. Crumpled Silk is the PolyCloth showcase.
+Storm, Crumpled Silk, Sculpted Drape, Crystal Lattice, Lava Flow, Aurora, Void
+Sphere). Applied by the preset dropdown in the panel. Neon Rain is the only one
+that ships a `"scene"` block (dark room + bloom) and stacks three PolyParticles
+layers — palette-colored disc rain, a `follow_influence` spark fountain trailing
+the cursor, and downward Streak rain — plus a hidden follow-mouse influence.
+Crumpled Silk and Sculpted Drape are the PolyCloth showcases (latter: curvature).
 
 ---
 
@@ -198,7 +253,10 @@ Uniforms set by PolyMesh setters each frame / on property change:
 ### particle_flow.gdshader (particles)
 Similar set — all pushed via `_mat.set_shader_parameter()`. Curl-noise flow
 field is divergence-free; `u_turbulence` scales the curl acceleration.
-Influence fields attract (+) or accelerate particles away (−).
+Influence fields attract (+) or accelerate particles away (−). Color priority in
+`process()`: `u_palette[6]` (when `u_palette_count > 0`, flat per-particle pick via
+the seed `CUSTOM.x`) → colormap → `u_color_a`/`u_color_b` lerp; then influence
+tint, then `u_particle_brightness`.
 
 ### polycloth.gdshader (spatial)
 PolyCloth's surface shader. Shares the colormap / posterize / contrast /
@@ -252,17 +310,44 @@ entirely by the schema.
     }
   ],
   "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2 },
+  "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0 },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-The `"scene"` block is optional; when absent on load the environment resets to
-the default white room (no bloom). Only parameters present in `get_param_schema()`
+The `"scene"` and `"hud"` blocks are optional; when absent on load the
+environment resets to the default white room (no bloom) and the logo turns off.
+Only parameters present in `get_param_schema()`
 are serialized. Missing keys
 on load keep the object's GDScript defaults. Colormap `preset` values map to
 `GradientColormap.Preset` enum (CUSTOM=0, VIRIDIS=1, PINK_RED_WHITE=2,
 PURPLE_YELLOW=3, GREEN_TEAL=4). Empty `offsets`/`colors` arrays means "use the
 preset's built-in gradient."
+
+---
+
+## OptiTrack motion capture (addons/optitrack_plugin)
+
+Third-party GDExtension (NatNet/Motive client) under `addons/optitrack_plugin/`.
+Registered in `project.godot`: the `OptiTrack` autoload (`optitrack.gd extends
+MotiveClient`) plus the editor sub-plugins (control panel + custom node types).
+Windows x86_64 **debug** DLL only (`bin/`), so it streams when run from the
+editor; an exported release build would need a release DLL not shipped here.
+
+Autoload API used by Poly-Vis (all defensive — see `_optitrack_pos`):
+`is_connected_to_motive() -> bool`, `get_rigid_body_pos(asset_id) -> Vector3`
+(already in Godot space), `get_rigid_body_rot(asset_id) -> Quaternion`.
+
+Integration: an `InfluenceObject` with `track_rigid_body = true` has its world
+position driven by `OptiTrack.get_rigid_body_pos(rigid_body_asset_id) +
+track_position_offset`, evaluated each frame in `InfluenceController._update_follow`
+(priority over `follow_mouse`). The lookup is guarded with
+`get_node_or_null("/root/OptiTrack")` + `has_method` + connection checks, so the
+app runs normally with the plugin absent, on non-Windows, or with Motive offline
+— the influence just holds position. Connection settings (server/client IP,
+multicast) live in `optitrack_settings.tres` and the editor's OptiTrack dock.
+To use: open in the editor, configure + start the connection in the OptiTrack
+dock, set the influence's `rigid_body_asset_id` to a streamed asset, run.
 
 ---
 

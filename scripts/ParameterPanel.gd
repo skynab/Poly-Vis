@@ -20,6 +20,7 @@ var PRESET_VALUES := [
 var _manager: VisualizationManager
 var _camera: Node
 var _scene: Object  # SceneEnvironment — bg color + bloom, rendered after camera
+var _hud: Object    # HudLogo — overlay logo, rendered after scene
 var _capture: CaptureManager
 var _undo: UndoHistory
 var _obj_selector: OptionButton
@@ -33,10 +34,11 @@ var _built := false
 
 func setup(manager: VisualizationManager, camera: Node,
 		capture: CaptureManager = null, undo: UndoHistory = null,
-		scene: Object = null) -> void:
+		scene: Object = null, hud: Object = null) -> void:
 	_manager = manager
 	_camera = camera
 	_scene = scene
+	_hud = hud
 	_capture = capture
 	_undo = undo
 	if not _built:
@@ -164,6 +166,8 @@ func _build_base() -> void:
 		_populate(content, _camera, _camera.get_param_schema())
 	if _scene and _scene.has_method("get_param_schema"):
 		_populate(content, _scene, _scene.get_param_schema())
+	if _hud and _hud.has_method("get_param_schema"):
+		_populate(content, _hud, _hud.get_param_schema())
 	_object_host = VBoxContainer.new()
 	_object_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(_object_host)
@@ -212,7 +216,7 @@ func _on_preset_selected(idx: int) -> void:
 		return
 	var names := BuiltInPresets.PRESETS.keys()
 	var data: Dictionary = BuiltInPresets.PRESETS[names[idx - 1]]
-	CompositionIO.apply(data, _manager, _camera, _scene)
+	CompositionIO.apply(data, _manager, _camera, _scene, _hud)
 	_show_status("Loaded preset: " + names[idx - 1])
 
 func _open_save() -> void:
@@ -227,7 +231,7 @@ func trigger_save() -> void:
 	_open_save()
 
 func _do_save(path: String) -> void:
-	var data := CompositionIO.serialize(_manager, _camera, _scene)
+	var data := CompositionIO.serialize(_manager, _camera, _scene, _hud)
 	var err := CompositionIO.save_json(path, data)
 	_show_status("Saved: " + path.get_file() if err == OK else "Save failed (%d)" % err)
 
@@ -236,7 +240,7 @@ func _do_load(path: String) -> void:
 	if data.is_empty():
 		_show_status("Load failed: empty or invalid file")
 		return
-	CompositionIO.apply(data, _manager, _camera, _scene)
+	CompositionIO.apply(data, _manager, _camera, _scene, _hud)
 	_show_status("Loaded: " + path.get_file())
 
 func duplicate_selected() -> void:
@@ -339,6 +343,7 @@ func _add_control(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 		"enum":           _add_enum(body, obj, prop)
 		"vector3":        _add_vector3(body, obj, prop)
 		"colormap_preset": _add_colormap(body, obj, prop)
+		"action":         _add_action(body, obj, prop)
 
 func _row(body: VBoxContainer, label_text: String, tip: String = "") -> HBoxContainer:
 	var row := HBoxContainer.new()
@@ -350,6 +355,24 @@ func _row(body: VBoxContainer, label_text: String, tip: String = "") -> HBoxCont
 	row.add_child(label)
 	body.add_child(row)
 	return row
+
+## A button that invokes a named method on the object (not a stored value).
+## CompositionIO skips "action" props, so nothing is serialized. For a managed
+## object we rebuild its controls afterward so changed properties show their new
+## values (e.g. randomized seeds). Global modules (camera/scene/hud) live in the
+## static section and aren't refreshed — their setters keep the view in sync.
+func _add_action(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
+	var method: String = prop["name"]
+	var btn := Button.new()
+	btn.text = prop.get("label", method.capitalize())
+	btn.tooltip_text = prop.get("hint", "")
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.pressed.connect(func():
+		if obj.has_method(method):
+			obj.call(method)
+		if _manager and obj in _manager.objects:
+			show_object(obj))
+	body.add_child(btn)
 
 func _add_number(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
@@ -368,17 +391,23 @@ func _add_number(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	readout.text = _fmt(obj.get(pname), is_int)
 	row.add_child(readout)
 
-	# Capture value before drag so undo records the before/after pair.
-	var drag_start: Variant = null
+	# Capture value before drag so undo records the before/after pair. A one-slot
+	# array is shared by reference across the lambdas — plain locals are captured
+	# by value, so a write in one lambda wouldn't be visible to another.
+	var drag_start: Array = [null]
 	slider.drag_started.connect(func():
-		drag_start = obj.get(pname))
+		drag_start[0] = obj.get(pname))
 	slider.value_changed.connect(func(v: float):
-		var out: Variant = int(round(v)) if is_int else v
+		var out: Variant
+		if is_int:
+			out = int(round(v))
+		else:
+			out = v
 		obj.set(pname, out)
 		readout.text = _fmt(out, is_int))
 	slider.drag_ended.connect(func(changed: bool):
-		if changed and _undo != null and drag_start != null:
-			_undo.record_property(obj, pname, drag_start, obj.get(pname)))
+		if changed and _undo != null and drag_start[0] != null:
+			_undo.record_property(obj, pname, drag_start[0], obj.get(pname)))
 
 func _add_bool(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
@@ -399,16 +428,16 @@ func _add_color(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	picker.color = obj.get(pname)
 	row.add_child(picker)
-	var color_before: Color
-	# pressed fires before the popup appears — snapshot here so popup_closed
-	# can compare against the pre-session value for undo.
+	# One-slot array shared by reference across lambdas (see _add_number). pressed
+	# fires before the popup appears — snapshot the pre-edit color for undo.
+	var color_before: Array = [Color()]
 	picker.pressed.connect(func():
-		color_before = obj.get(pname))
+		color_before[0] = obj.get(pname))
 	picker.color_changed.connect(func(c: Color):
 		obj.set(pname, c))
 	picker.popup_closed.connect(func():
 		if _undo:
-			_undo.record_property(obj, pname, color_before, obj.get(pname)))
+			_undo.record_property(obj, pname, color_before[0], obj.get(pname)))
 
 func _add_enum(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
@@ -443,7 +472,7 @@ func _add_vector3(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 		spins[axis].value_changed.connect(func(_v: float):
 			obj.set(pname, Vector3(spins[0].value, spins[1].value, spins[2].value)))
 
-func _add_colormap(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
+func _add_colormap(body: VBoxContainer, obj: Object, _prop: Dictionary) -> void:
 	var row := _row(body, "Colormap", "Gradient used to color this object")
 	var opt := OptionButton.new()
 	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL

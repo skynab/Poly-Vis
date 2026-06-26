@@ -9,13 +9,15 @@ class_name CompositionIO
 
 # --- serialize -------------------------------------------------------------
 static func serialize(manager: VisualizationManager, camera: Node,
-		scene: Object = null) -> Dictionary:
+		scene: Object = null, hud: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
 	var result := {"version": 1, "objects": objs, "camera": _schema_to_dict(camera)}
 	if scene and scene.has_method("get_param_schema"):
 		result["scene"] = _schema_to_dict(scene)
+	if hud and hud.has_method("get_param_schema"):
+		result["hud"] = _schema_to_dict(hud)
 	return result
 
 ## Encode every schema property of a single object into a flat Dictionary.
@@ -24,6 +26,8 @@ static func _schema_to_dict(obj: Object) -> Dictionary:
 	if obj and obj.has_method("get_param_schema"):
 		for section in obj.get_param_schema():
 			for prop in section["props"]:
+				if prop["type"] == "action":
+					continue  # buttons carry no value to serialize
 				d[prop["name"]] = _encode(prop["type"], obj.get(prop["name"]))
 	return d
 
@@ -33,6 +37,8 @@ static func _dict_to_schema(obj: Object, d: Dictionary) -> void:
 		return
 	for section in obj.get_param_schema():
 		for prop in section["props"]:
+			if prop["type"] == "action":
+				continue
 			var pn: String = prop["name"]
 			if d.has(pn):
 				obj.set(pn, _decode(prop["type"], d[pn]))
@@ -42,6 +48,8 @@ static func serialize_object(obj: Node3D, type_label: String) -> Dictionary:
 	if obj.has_method("get_param_schema"):
 		for section in obj.get_param_schema():
 			for prop in section["props"]:
+				if prop["type"] == "action":
+					continue
 				var pn: String = prop["name"]
 				params[pn] = _encode(prop["type"], obj.get(pn))
 	return {"type": type_label, "position": _v3(obj.position), "params": params}
@@ -74,7 +82,7 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 
 # --- deserialize -----------------------------------------------------------
 static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
-		scene: Object = null) -> void:
+		scene: Object = null, hud: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
@@ -85,6 +93,11 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		if scene.has_method("reset_defaults"):
 			scene.reset_defaults()
 		_dict_to_schema(scene, data.get("scene", {}))
+	if hud:
+		# Same pattern: a comp with no "hud" block clears any prior logo.
+		if hud.has_method("reset_defaults"):
+			hud.reset_defaults()
+		_dict_to_schema(hud, data.get("hud", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 
@@ -112,6 +125,8 @@ static func _apply_params(obj: Node3D, params: Dictionary) -> void:
 		return
 	for section in obj.get_param_schema():
 		for prop in section["props"]:
+			if prop["type"] == "action":
+				continue
 			var pn: String = prop["name"]
 			if params.has(pn):
 				obj.set(pn, _decode(prop["type"], params[pn]))
