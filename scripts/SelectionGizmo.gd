@@ -8,6 +8,10 @@ class_name SelectionGizmo
 
 const STEPS := 64
 
+## Master toggle for the selection ring. Off by default — the bright ring is a
+## distraction in the middle of the view, and presets reset it to off on load.
+@export var enabled: bool = false: set = set_enabled
+
 var _im: ImmediateMesh
 var _mat: StandardMaterial3D
 var _target: Node3D = null
@@ -28,17 +32,35 @@ func _ready() -> void:
 
 	visible = false
 
+func set_enabled(v: bool) -> void:
+	enabled = v
+	# Re-evaluate visibility against the current target (or hide immediately).
+	select(_target)
+
 func select(obj: Node3D) -> void:
 	_target = obj
 	# Influence objects already draw their own radius shell; skip gizmo for them.
-	visible = obj != null and not (obj is InfluenceObject)
+	visible = enabled and obj != null and not (obj is InfluenceObject)
 
 func _process(_delta: float) -> void:
-	if not is_instance_valid(_target):
+	if not enabled or not is_instance_valid(_target):
 		visible = false
 		return
 	global_position = _target.global_position
 	_redraw(_ring_radius())
+
+## Restore default (ring off) when a loaded composition has no "gizmo" block.
+func reset_defaults() -> void:
+	enabled = false
+
+## Schema consumed by the ParameterPanel (rendered as a global module).
+func get_param_schema() -> Array:
+	return [{
+		"title": "Selection Ring",
+		"props": [
+			{"name": "enabled", "type": "bool"},
+		]
+	}]
 
 func _redraw(r: float) -> void:
 	_im.clear_surfaces()

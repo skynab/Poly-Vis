@@ -60,7 +60,7 @@ func _ready() -> void:
 	hud_logo.name = "HudLogo"
 	add_child(hud_logo)
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo)
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo)
 	influence.setup(manager, camera)
 	input_mgr.setup(manager, camera, panel, undo)
 

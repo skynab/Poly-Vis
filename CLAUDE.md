@@ -186,9 +186,9 @@ renders a button that calls `obj.<name>()` then refreshes the object's controls;
 it stores no value and CompositionIO skips it during (de)serialization.
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
-→ capture/record → status line → hint bar → camera → scene → HUD logo → object
-sections. Camera/scene/hud are global modules in a static area; managed-object
-controls render in `_object_host` below them.
+→ capture/record → status line → hint bar → camera → scene → HUD logo → selection
+ring → object sections. Camera/scene/hud/gizmo are global modules in a static
+area; managed-object controls render in `_object_host` below them.
 
 ### HudLogo
 `CanvasLayer` overlay showing a logo over the front of the view. Bundles the
@@ -212,15 +212,15 @@ NOTE: the enum is `LogoCorner`, not `Corner` — `Corner` is a Godot built-in en
 and shadowing it is a parse error.
 
 ### CompositionIO
-Stateless serializer. `serialize(manager, camera, scene=null, hud=null)` →
-Dictionary; `apply(data, manager, camera, scene=null, hud=null)` → rebuilds from
-Dictionary. File I/O: `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
-Vector3 → `[x,y,z]`, enums → int, strings → as-is, colormaps →
-`{"preset": N, "offsets": [], "colors": []}`. Camera, `scene` (SceneEnvironment),
-and `hud` (HudLogo) are each serialized by walking their `get_param_schema()` via
-the shared `_schema_to_dict` / `_dict_to_schema` helpers. On load, if `scene` /
-`hud` are supplied but the composition lacks their block, `reset_defaults()`
-restores the white room / clears the logo first.
+Stateless serializer. `serialize(manager, camera, scene=null, hud=null,
+gizmo=null)` → Dictionary; `apply(data, manager, camera, scene=null, hud=null,
+gizmo=null)` → rebuilds from Dictionary. File I/O: `save_json` / `load_json`.
+Encoding: colors → `[r,g,b,a]`, Vector3 → `[x,y,z]`, enums → int, strings →
+as-is, colormaps → `{"preset": N, "offsets": [], "colors": []}`. Camera, `scene`
+(SceneEnvironment), `hud` (HudLogo), and `gizmo` (SelectionGizmo) are each
+serialized by walking their `get_param_schema()` via the shared `_schema_to_dict`
+/ `_dict_to_schema` helpers. On load, if a module is supplied but the composition
+lacks its block, `reset_defaults()` runs first (white room / no logo / ring off).
 
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
@@ -245,7 +245,11 @@ the viewport image, optional Lanczos upscale, saves to `user://screenshot_*.png`
 ### SelectionGizmo
 `MeshInstance3D` using `ImmediateMesh` to draw a glowing ring in the XZ plane
 under the selected object. Ring radius matches the object's bounding extent.
-Skips `InfluenceObject` (which already draws its own radius sphere).
+Skips `InfluenceObject` (which already draws its own radius sphere). Gated by an
+`enabled` toggle that is **off by default** — it is a schema-driven global module
+(like SceneEnvironment/HudLogo) serialized under `"gizmo"`, so loading any preset
+(which carries no `"gizmo"` block) resets it off. Toggle it on via the panel's
+"Selection Ring" section.
 
 ### InputManager
 `_unhandled_key_input` handler. Delegates to VisualizationManager, panel, camera,
