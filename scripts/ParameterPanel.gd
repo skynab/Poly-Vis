@@ -33,6 +33,12 @@ var _save_dlg: FileDialog
 var _load_dlg: FileDialog
 var _built := false
 
+const _PANEL_WIDTH := 340          # expanded width of the dock
+var _panel_body: VBoxContainer     # everything below the top bar (all the options)
+var _title_label: Label            # "Poly-Vis" — hidden in fullscreen to shrink the chip
+var _fs_button: Button             # the fullscreen / hide-options toggle
+var _fullscreen := false
+
 func setup(manager: VisualizationManager, camera: Node,
 		capture: CaptureManager = null, undo: UndoHistory = null,
 		scene: Object = null, hud: Object = null, gizmo: Object = null) -> void:
@@ -75,15 +81,31 @@ func _build_base() -> void:
 	root.add_theme_constant_override("separation", 6)
 	margin.add_child(root)
 
-	# Title
-	var title := Label.new()
-	title.text = "Poly-Vis"
-	title.add_theme_font_size_override("font_size", 20)
-	root.add_child(title)
+	# Top bar: title + fullscreen / hide-options toggle. Stays visible even when the
+	# rest of the panel is hidden, so it can always be toggled back off.
+	var top_bar := HBoxContainer.new()
+	root.add_child(top_bar)
+	_title_label = Label.new()
+	_title_label.text = "Poly-Vis"
+	_title_label.add_theme_font_size_override("font_size", 20)
+	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_bar.add_child(_title_label)
+	_fs_button = Button.new()
+	_fs_button.toggle_mode = true
+	_fs_button.text = "⛶"
+	_fs_button.tooltip_text = "Fullscreen — hide all options for a clean view  [F11]"
+	_fs_button.toggled.connect(func(p: bool): _set_fullscreen(p))
+	top_bar.add_child(_fs_button)
+
+	# Everything below the top bar — hidden in fullscreen mode.
+	_panel_body = VBoxContainer.new()
+	_panel_body.add_theme_constant_override("separation", 6)
+	_panel_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(_panel_body)
 
 	# Object selector
 	var bar := HBoxContainer.new()
-	root.add_child(bar)
+	_panel_body.add_child(bar)
 	_obj_selector = OptionButton.new()
 	_obj_selector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_obj_selector.tooltip_text = "Select the active object"
@@ -92,7 +114,7 @@ func _build_base() -> void:
 
 	# Add / Remove toolbar
 	var bar2 := HBoxContainer.new()
-	root.add_child(bar2)
+	_panel_body.add_child(bar2)
 	_btn(bar2, "+ Mesh", "Add a new PolyMesh", func(): _manager.add_mesh())
 	_btn(bar2, "+ Pts",  "Add a new particle system", func(): _manager.add_particles())
 	_btn(bar2, "+ Cloth", "Add a new crumpled-cloth surface", func(): _manager.add_cloth())
@@ -101,7 +123,7 @@ func _build_base() -> void:
 
 	# IO toolbar: presets | save | load | duplicate
 	var io_bar := HBoxContainer.new()
-	root.add_child(io_bar)
+	_panel_body.add_child(io_bar)
 	var preset_opt := OptionButton.new()
 	preset_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	preset_opt.tooltip_text = "Load a built-in preset composition"
@@ -116,7 +138,7 @@ func _build_base() -> void:
 
 	# Export toolbar: screenshot | 2x | record | fps
 	var ex_bar := HBoxContainer.new()
-	root.add_child(ex_bar)
+	_panel_body.add_child(ex_bar)
 	_btn(ex_bar, "Capture", "Screenshot (UI hidden, saved to user://)", func(): _do_screenshot(1))
 	_btn(ex_bar, "2×",      "2× upscaled screenshot", func(): _do_screenshot(2))
 	_rec_button = Button.new()
@@ -139,25 +161,25 @@ func _build_base() -> void:
 	_status_label.add_theme_font_size_override("font_size", 10)
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status_label.custom_minimum_size = Vector2(0, 14)
-	root.add_child(_status_label)
+	_panel_body.add_child(_status_label)
 
-	root.add_child(HSeparator.new())
+	_panel_body.add_child(HSeparator.new())
 
 	# Shortcut reminder
 	var hint := Label.new()
-	hint.text = "Tab cycle · H panel · Del remove · F focus · Space anim"
+	hint.text = "Tab cycle · H panel · F11 fullscreen · Del remove · F focus · Space anim"
 	hint.add_theme_font_size_override("font_size", 9)
 	hint.modulate = Color(1, 1, 1, 0.45)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	root.add_child(hint)
+	_panel_body.add_child(hint)
 
-	root.add_child(HSeparator.new())
+	_panel_body.add_child(HSeparator.new())
 
 	# Scrollable parameter area
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	root.add_child(scroll)
+	_panel_body.add_child(scroll)
 
 	var content := VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -183,6 +205,40 @@ func _btn(parent: Node, text: String, tip: String, cb: Callable) -> void:
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(cb)
 	parent.add_child(b)
+
+# ---------------------------------------------------------------------------
+# Fullscreen / clean-view mode
+# ---------------------------------------------------------------------------
+## Enter (or leave) the clean presentation view: the OS window goes fullscreen and
+## every option below the top bar is hidden, collapsing the dock to a small chip in
+## the corner that holds only the toggle. Idempotent and safe to drive from either
+## the panel button or the F11 shortcut (keeps the button's pressed state in sync).
+func _set_fullscreen(on: bool) -> void:
+	_fullscreen = on
+	if _panel_body:
+		_panel_body.visible = not on
+	if _title_label:
+		_title_label.visible = not on
+	if _fs_button and _fs_button.button_pressed != on:
+		_fs_button.button_pressed = on
+	# Collapse the dock to a small top-right chip (just the toggle) so it stops
+	# covering the view; restore the full-height dock when leaving fullscreen.
+	if on:
+		custom_minimum_size.x = 0.0  # the 340 floor would otherwise keep it full-width
+		offset_left = -56.0
+		anchor_bottom = 0.0
+		offset_bottom = 48.0
+	else:
+		custom_minimum_size.x = _PANEL_WIDTH
+		offset_left = -float(_PANEL_WIDTH)
+		anchor_bottom = 1.0
+		offset_bottom = 0.0
+	var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if on else DisplayServer.WINDOW_MODE_WINDOWED
+	DisplayServer.window_set_mode(mode)
+
+## Public entry point for the F11 keyboard shortcut (InputManager).
+func toggle_fullscreen() -> void:
+	_set_fullscreen(not _fullscreen)
 
 # ---------------------------------------------------------------------------
 # Object list

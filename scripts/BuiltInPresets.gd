@@ -63,11 +63,11 @@ const PRESETS: Dictionary = {
 				"type": "PolyParticles",
 				"position": [0.0, 0.0, 0.0],
 				"params": {
-					"count": 9000,
+					"count": 5000,
 					"particle_lifetime": 11.0,
 					"emitter_shape": 2,
 					"emitter_extents": [6.0, 6.0, 6.0],
-					"emitter_size": 1.7,
+					"emitter_size": 1.9,
 					"particle_shape": 3,
 					"particle_size": 0.09,
 					"particle_size_curve": false,
@@ -86,14 +86,14 @@ const PRESETS: Dictionary = {
 					"palette_enable_3": true, "palette_color_3": [0.3, 1.0, 0.6, 1.0],
 					"palette_enable_4": true, "palette_color_4": [0.2, 0.7, 1.0, 1.0],
 					"palette_enable_5": true, "palette_color_5": [0.8, 0.3, 1.0, 1.0],
-					"particle_brightness": 3.8
+					"particle_brightness": 2.0
 				}
 			},
 			{
 				"type": "PolyParticles",
 				"position": [0.0, 0.0, 0.0],
 				"params": {
-					"count": 2500,
+					"count": 1400,
 					"particle_lifetime": 3.0,
 					"emitter_shape": 1,
 					"emitter_extents": [0.3, 0.3, 0.3],
@@ -115,14 +115,14 @@ const PRESETS: Dictionary = {
 					"palette_enable_1": true, "palette_color_1": [1.0, 0.95, 0.6, 1.0],
 					"palette_enable_2": true, "palette_color_2": [1.0, 0.5, 0.9, 1.0],
 					"palette_enable_3": true, "palette_color_3": [0.6, 0.85, 1.0, 1.0],
-					"particle_brightness": 4.0
+					"particle_brightness": 2.2
 				}
 			},
 			{
 				"type": "PolyParticles",
 				"position": [0.0, 5.0, 0.0],
 				"params": {
-					"count": 3500,
+					"count": 2000,
 					"particle_lifetime": 5.0,
 					"emitter_shape": 2,
 					"emitter_extents": [7.0, 0.5, 7.0],
@@ -144,7 +144,7 @@ const PRESETS: Dictionary = {
 					"palette_enable_2": true, "palette_color_2": [0.3, 1.0, 0.7, 1.0],
 					"palette_enable_3": true, "palette_color_3": [0.3, 0.6, 1.0, 1.0],
 					"palette_enable_4": true, "palette_color_4": [1.0, 0.9, 0.4, 1.0],
-					"particle_brightness": 3.5
+					"particle_brightness": 2.0
 				}
 			},
 			{
@@ -164,7 +164,7 @@ const PRESETS: Dictionary = {
 		"scene": {
 			"bg_color": [0.02, 0.02, 0.05, 1.0],
 			"bloom_enabled": true,
-			"bloom_intensity": 1.2
+			"bloom_intensity": 0.6
 		},
 		"camera": {
 			"target": [0.0, 0.0, 0.0],
@@ -220,7 +220,7 @@ const PRESETS: Dictionary = {
 		}
 	},
 
-	"Crumpled Silk": {
+	"Draped Silk": {
 		"version": 1,
 		"objects": [
 			{
@@ -228,12 +228,17 @@ const PRESETS: Dictionary = {
 				"position": [0.0, 0.0, 0.0],
 				"params": {
 					"extent": 7.0,
-					"resolution": 90,
-					"amplitude": 4.0,
-					"frequency": 0.16,
-					"warp": 1.4,
-					"fold": 0.7,
+					"resolution": 110,
+					"amplitude": 2.3,
+					"amplitude_variance": 0.5,
+					"amplitude_variance_scale": 0.08,
+					"frequency": 0.13,
+					"warp": 1.1,
+					"fold": 0.35,
 					"noise_seed": 3,
+					"curvature_amount": 2.4,
+					"curvature_complexity": 4,
+					"shape_seed": 41,
 					"surface_roughness": 0.85,
 					"surface_metallic": 0.0,
 					"colormap": {"preset": 2, "offsets": [], "colors": []},
@@ -244,23 +249,23 @@ const PRESETS: Dictionary = {
 					"posterize_steps": 5,
 					"contrast": 1.1,
 					"brightness": 1.05,
-					"cool_color": [0.62, 0.66, 0.98, 1.0],
-					"cool_strength": 0.75,
-					"cool_dir": [0.3, 1.0, 0.2],
+					"cool_color": [0.6, 0.65, 0.98, 1.0],
+					"cool_strength": 0.85,
+					"cool_dir": [0.2, 1.0, 0.15],
 					"rim_strength": 0.25,
 					"rim_power": 2.5,
 					"rim_color": [1.0, 1.0, 1.0, 1.0],
 					"translucency": 0.0,
 					"animate": true,
-					"anim_amplitude": 0.12,
+					"anim_amplitude": 0.1,
 					"anim_frequency": 0.5,
 					"anim_speed": 0.3
 				}
 			}
 		],
 		"camera": {
-			"target": [0.0, 0.5, 0.0],
-			"distance": 6.0
+			"target": [0.0, 0.3, 0.0],
+			"distance": 7.0
 		}
 	},
 
@@ -271,17 +276,17 @@ const PRESETS: Dictionary = {
 				"type": "PolyCloth",
 				"position": [0.0, 0.0, 0.0],
 				"params": {
-					"extent": 6.0,
-					"resolution": 110,
-					"amplitude": 3.2,
-					"amplitude_variance": 0.75,
-					"amplitude_variance_scale": 0.1,
-					"frequency": 0.2,
-					"warp": 2.6,
-					"fold": 1.1,
+					"extent": 6.5,
+					"resolution": 120,
+					"amplitude": 2.6,
+					"amplitude_variance": 0.55,
+					"amplitude_variance_scale": 0.09,
+					"frequency": 0.15,
+					"warp": 1.4,
+					"fold": 0.45,
 					"noise_seed": 21,
-					"curvature_amount": 5.5,
-					"curvature_complexity": 7,
+					"curvature_amount": 3.6,
+					"curvature_complexity": 5,
 					"shape_seed": 137,
 					"surface_roughness": 0.85,
 					"surface_metallic": 0.0,
@@ -293,9 +298,9 @@ const PRESETS: Dictionary = {
 					"posterize_steps": 5,
 					"contrast": 1.1,
 					"brightness": 1.05,
-					"cool_color": [0.62, 0.66, 0.98, 1.0],
-					"cool_strength": 0.75,
-					"cool_dir": [0.3, 1.0, 0.2],
+					"cool_color": [0.55, 0.62, 1.0, 1.0],
+					"cool_strength": 0.85,
+					"cool_dir": [0.25, 1.0, 0.2],
 					"rim_strength": 0.3,
 					"rim_power": 2.5,
 					"rim_color": [1.0, 1.0, 1.0, 1.0],
@@ -310,6 +315,104 @@ const PRESETS: Dictionary = {
 		"camera": {
 			"target": [0.0, 0.0, 0.0],
 			"distance": 8.0
+		}
+	},
+
+	"Glacier Drape": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyCloth",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"extent": 7.0,
+					"resolution": 110,
+					"amplitude": 2.5,
+					"amplitude_variance": 0.6,
+					"amplitude_variance_scale": 0.08,
+					"frequency": 0.14,
+					"warp": 1.3,
+					"fold": 0.4,
+					"noise_seed": 64,
+					"curvature_amount": 3.0,
+					"curvature_complexity": 5,
+					"shape_seed": 308,
+					"surface_roughness": 0.8,
+					"surface_metallic": 0.0,
+					"colormap": {"preset": 4, "offsets": [], "colors": []},
+					"color_source": 2,
+					"color_min": -1.0,
+					"color_max": 1.0,
+					"posterize": false,
+					"posterize_steps": 5,
+					"contrast": 1.1,
+					"brightness": 1.05,
+					"cool_color": [1.0, 0.72, 0.42, 1.0],
+					"cool_strength": 0.7,
+					"cool_dir": [0.2, 1.0, 0.25],
+					"rim_strength": 0.3,
+					"rim_power": 2.5,
+					"rim_color": [1.0, 1.0, 1.0, 1.0],
+					"translucency": 0.0,
+					"animate": true,
+					"anim_amplitude": 0.1,
+					"anim_frequency": 0.5,
+					"anim_speed": 0.3
+				}
+			}
+		],
+		"camera": {
+			"target": [0.0, 0.2, 0.0],
+			"distance": 7.5
+		}
+	},
+
+	"Dune Drape": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyCloth",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"extent": 8.0,
+					"resolution": 120,
+					"amplitude": 2.8,
+					"amplitude_variance": 0.65,
+					"amplitude_variance_scale": 0.06,
+					"frequency": 0.11,
+					"warp": 1.2,
+					"fold": 0.4,
+					"noise_seed": 88,
+					"curvature_amount": 2.2,
+					"curvature_complexity": 4,
+					"shape_seed": 512,
+					"surface_roughness": 0.85,
+					"surface_metallic": 0.0,
+					"colormap": {"preset": 3, "offsets": [], "colors": []},
+					"color_source": 2,
+					"color_min": -1.0,
+					"color_max": 1.0,
+					"posterize": false,
+					"posterize_steps": 5,
+					"contrast": 1.15,
+					"brightness": 1.05,
+					"cool_color": [0.45, 0.55, 1.0, 1.0],
+					"cool_strength": 0.8,
+					"cool_dir": [0.15, 1.0, 0.3],
+					"rim_strength": 0.3,
+					"rim_power": 2.5,
+					"rim_color": [1.0, 1.0, 1.0, 1.0],
+					"translucency": 0.0,
+					"animate": true,
+					"anim_amplitude": 0.1,
+					"anim_frequency": 0.5,
+					"anim_speed": 0.3
+				}
+			}
+		],
+		"camera": {
+			"target": [0.0, 0.2, 0.0],
+			"distance": 8.5
 		}
 	},
 

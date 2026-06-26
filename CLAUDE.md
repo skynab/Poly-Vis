@@ -257,12 +257,17 @@ and UndoHistory. Full shortcut list in the script header comment.
 
 ### BuiltInPresets
 Const dictionary of CompositionIO-compatible scenes (Default, Neon Rain, Petal
-Storm, Crumpled Silk, Sculpted Drape, Crystal Lattice, Lava Flow, Aurora, Void
-Sphere). Applied by the preset dropdown in the panel. Neon Rain is the only one
-that ships a `"scene"` block (dark room + bloom) and stacks three PolyParticles
-layers — palette-colored disc rain, a `follow_influence` spark fountain trailing
-the cursor, and downward Streak rain — plus a hidden follow-mouse influence.
-Crumpled Silk and Sculpted Drape are the PolyCloth showcases (latter: curvature).
+Storm, Draped Silk, Sculpted Drape, Glacier Drape, Dune Drape, Crystal Lattice,
+Lava Flow, Aurora, Void Sphere). Applied by the preset dropdown in the panel.
+Neon Rain is the only one that ships a `"scene"` block (dark room + bloom) and
+stacks three PolyParticles layers — palette-colored disc rain, a
+`follow_influence` spark fountain trailing the cursor, and downward Streak rain —
+plus a hidden follow-mouse influence. Draped Silk, Sculpted Drape, Glacier Drape,
+and Dune Drape are the PolyCloth showcases — a family tuned to drape in broad
+folds without crumpling in on themselves (low `fold`/`warp`, moderate
+`curvature_amount`), each pairing a warm colormap with a contrasting `cool_color`
+for the two-tone facet split (Draped/Sculpted: pink + periwinkle, Glacier: teal +
+amber, Dune: purple-yellow + blue).
 
 ---
 

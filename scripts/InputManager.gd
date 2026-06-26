@@ -9,6 +9,7 @@ extends Node
 ##   Ctrl+S                 save composition
 ##   Tab                    cycle object selection
 ##   H                      hide / show parameter panel
+##   F11                    fullscreen clean view (hide all options)
 ##   Space                  toggle animate on selected PolyMesh
 ##   F                      focus camera on selected object
 ##   1–9                    select object by index
@@ -55,6 +56,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			_cycle_selection()
 		KEY_H:
 			_panel.visible = not _panel.visible
+		KEY_F11:
+			_panel.toggle_fullscreen()
 		KEY_SPACE:
 			_toggle_animation()
 		KEY_F:
