@@ -21,20 +21,26 @@ const CLOTH_SHADER := preload("res://shaders/polycloth.gdshader")
 ## Grid divisions per side. Triangle count scales as O(resolution^2).
 @export_range(8, 200) var resolution: int = 72: set = set_resolution
 ## Vertical crumple height. Large values fold the sheet back over itself.
-@export_range(0.0, 8.0) var amplitude: float = 3.5: set = set_amplitude
+@export_range(0.0, 12.0) var amplitude: float = 3.5: set = set_amplitude
+## Spatially varies the crumple height — some regions rise much higher, others
+## flatten out — instead of a uniform amplitude. 0 = uniform. Driven by a
+## low-frequency noise field so the high/low zones are broad, organic patches.
+@export_range(0.0, 1.0) var amplitude_variance: float = 0.0: set = set_amplitude_variance
+## Patch size of the amplitude variation (lower = broader high/low regions).
+@export_range(0.02, 1.0) var amplitude_variance_scale: float = 0.12: set = set_amplitude_variance_scale
 @export_range(0.02, 2.0) var frequency: float = 0.18: set = set_frequency
 ## Domain-warp strength — bunches folds together for the crumpled-paper look.
-@export_range(0.0, 3.0) var warp: float = 1.2: set = set_warp
+@export_range(0.0, 5.0) var warp: float = 1.2: set = set_warp
 ## Lateral (XZ) displacement that curls folds into overhangs.
-@export_range(0.0, 2.0) var fold: float = 0.6: set = set_fold
+@export_range(0.0, 3.0) var fold: float = 0.6: set = set_fold
 @export var noise_seed: int = 0: set = set_noise_seed
 
 @export_group("Curvature")
 ## Master strength of the large-scale warp that bends the whole sheet into a
 ## complex 3D form (bowl / saddle / scroll / twist). 0 == flat draped sheet.
-@export_range(0.0, 6.0) var curvature_amount: float = 0.0: set = set_curvature_amount
+@export_range(0.0, 12.0) var curvature_amount: float = 0.0: set = set_curvature_amount
 ## How many superimposed bend lobes — higher folds the form more intricately.
-@export_range(1, 8) var curvature_complexity: int = 3: set = set_curvature_complexity
+@export_range(1, 16) var curvature_complexity: int = 3: set = set_curvature_complexity
 ## Seeds the random curvature. Each value yields a unique, reproducible shape.
 @export var shape_seed: int = 0: set = set_shape_seed
 
@@ -114,6 +120,15 @@ func _build_surface() -> void:
 	lateral.seed = noise_seed + 1337
 	lateral.frequency = frequency * 1.7
 
+	# Low-frequency field that modulates the local crumple amplitude so the sheet
+	# has tall, dramatic zones and calmer flatter zones instead of uniform height.
+	var amp_field := FastNoiseLite.new()
+	amp_field.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	amp_field.seed = noise_seed + 91
+	amp_field.frequency = amplitude_variance_scale
+	amp_field.fractal_type = FastNoiseLite.FRACTAL_FBM
+	amp_field.fractal_octaves = 2
+
 	var lobes := _build_curvature_lobes()
 
 	# Sample a (res+1)^2 grid of crumpled positions, plus the per-vertex height
@@ -128,11 +143,16 @@ func _build_surface() -> void:
 		for gx in n:
 			var x := -extent + gx * step
 			var z := -extent + gz * step
+			# Per-vertex amplitude: base, scaled by the variance field (clamped at 0
+			# so low zones flatten rather than invert).
+			var local_amp := amplitude
+			if amplitude_variance > 0.0:
+				local_amp *= maxf(1.0 + amplitude_variance * amp_field.get_noise_2d(x, z), 0.0)
 			var hn := height.get_noise_2d(x, z)
-			var fx := lateral.get_noise_2d(x + 100.0, z) * fold * amplitude
-			var fz := lateral.get_noise_2d(x, z + 100.0) * fold * amplitude
+			var fx := lateral.get_noise_2d(x + 100.0, z) * fold * local_amp
+			var fz := lateral.get_noise_2d(x, z + 100.0) * fold * local_amp
 			var idx := gz * n + gx
-			var p := Vector3(x + fx, hn * amplitude, z + fz)
+			var p := Vector3(x + fx, hn * local_amp, z + fz)
 			p += _curvature_offset(lobes, x / extent, z / extent)
 			pts[idx] = p
 			aux[idx] = Vector2(hn, sqrt(fx * fx + fz * fz))
@@ -198,12 +218,15 @@ func _curvature_offset(lobes: Array, u: float, v: float) -> Vector3:
 	return d * curvature_amount
 
 ## Generate a fresh unique shape: new crumple + curvature seeds. Ensures the
-## warp is actually visible by giving curvature_amount a value if it was off.
+## warp is actually visible by giving curvature_amount a value if it was off, and
+## introduces non-uniform amplitude so each shape has tall and flat zones.
 func randomize_shape() -> void:
 	# Each assignment runs its setter (which rebuilds); the final shape_seed
 	# assignment does the authoritative rebuild with all new values applied.
 	if curvature_amount < 0.05:
-		curvature_amount = randf_range(1.5, 3.5)
+		curvature_amount = randf_range(2.0, 5.0)
+	if amplitude_variance < 0.05:
+		amplitude_variance = randf_range(0.4, 0.9)
 	noise_seed = randi() % 10000
 	shape_seed = randi() % 10000
 
@@ -248,6 +271,14 @@ func set_resolution(v: int) -> void:
 
 func set_amplitude(v: float) -> void:
 	amplitude = v
+	rebuild()
+
+func set_amplitude_variance(v: float) -> void:
+	amplitude_variance = v
+	rebuild()
+
+func set_amplitude_variance_scale(v: float) -> void:
+	amplitude_variance_scale = v
 	rebuild()
 
 func set_frequency(v: float) -> void:
@@ -386,15 +417,17 @@ func get_param_schema() -> Array:
 		{"title": "Geometry", "props": [
 			{"name": "extent", "type": "float", "min": 1.0, "max": 20.0, "step": 0.1},
 			{"name": "resolution", "type": "int", "min": 8, "max": 200, "step": 1},
-			{"name": "amplitude", "type": "float", "min": 0.0, "max": 8.0, "step": 0.05},
+			{"name": "amplitude", "type": "float", "min": 0.0, "max": 12.0, "step": 0.05},
+			{"name": "amplitude_variance", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+			{"name": "amplitude_variance_scale", "type": "float", "min": 0.02, "max": 1.0, "step": 0.01},
 			{"name": "frequency", "type": "float", "min": 0.02, "max": 2.0, "step": 0.01},
-			{"name": "warp", "type": "float", "min": 0.0, "max": 3.0, "step": 0.05},
-			{"name": "fold", "type": "float", "min": 0.0, "max": 2.0, "step": 0.02},
+			{"name": "warp", "type": "float", "min": 0.0, "max": 5.0, "step": 0.05},
+			{"name": "fold", "type": "float", "min": 0.0, "max": 3.0, "step": 0.02},
 			{"name": "noise_seed", "type": "int", "min": 0, "max": 9999, "step": 1},
 		]},
 		{"title": "Curvature", "props": [
-			{"name": "curvature_amount", "type": "float", "min": 0.0, "max": 6.0, "step": 0.05},
-			{"name": "curvature_complexity", "type": "int", "min": 1, "max": 8, "step": 1},
+			{"name": "curvature_amount", "type": "float", "min": 0.0, "max": 12.0, "step": 0.05},
+			{"name": "curvature_complexity", "type": "int", "min": 1, "max": 16, "step": 1},
 			{"name": "shape_seed", "type": "int", "min": 0, "max": 9999, "step": 1},
 			{"name": "randomize_shape", "type": "action", "label": "Randomize Shape",
 				"hint": "Generate a unique curvature + crumple from new random seeds"},

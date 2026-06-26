@@ -70,6 +70,10 @@ const DEFORM_SHADER := preload("res://shaders/polymesh_deform.gdshader")
 @export_range(0.0, 2.0) var anim_amplitude: float = 0.25: set = set_anim_amplitude
 @export_range(0.05, 5.0) var anim_frequency: float = 1.2: set = set_anim_frequency
 @export_range(0.0, 5.0) var anim_speed: float = 0.6: set = set_anim_speed
+## Also animate the wireframe/lattice so it tracks the surface (CPU-side, matching
+## the GPU noise). Off = static lattice over an animated surface. Heavier at high
+## subdivisions since lattice transforms are recomputed each frame.
+@export var animate_lattice: bool = false
 
 @export_group("LOD")
 ## Drop 1 subdivision level beyond lod_dist1, 2 levels beyond lod_dist2.
@@ -88,6 +92,9 @@ var _edge_mat: StandardMaterial3D
 var _node_mat: StandardMaterial3D
 var _effective_subdivisions: int = 3     # actual level used (may be < subdivisions when LOD kicks in)
 var _lod_level: int = -1                 # -1 forces rebuild on first check
+var _edge_list: Array = []               # cached deduped edges (Vector2i) for per-frame lattice anim
+var _lattice_animating: bool = false     # tracks when to restore static lattice
+var _anim_buf: PackedVector3Array = PackedVector3Array()  # reused animated-position scratch
 
 func _ready() -> void:
 	_ensure_children()
@@ -95,10 +102,19 @@ func _ready() -> void:
 	set_process(true)
 
 func _process(_delta: float) -> void:
+	var t := float(Time.get_ticks_msec()) / 1000.0
 	if _surface_mat:
-		_surface_mat.set_shader_parameter("u_time", float(Time.get_ticks_msec()) / 1000.0)
+		_surface_mat.set_shader_parameter("u_time", t)
 	if lod_enabled:
 		_update_lod()
+	# Lattice animation: only when the lattice is visible and the toggle is on.
+	var want_lattice_anim := animate and animate_lattice and render_mode != RenderMode.SOLID
+	if want_lattice_anim:
+		_update_lattice_anim(t)
+		_lattice_animating = true
+	elif _lattice_animating:
+		_build_lattice()  # restore the static lattice once when animation stops
+		_lattice_animating = false
 
 # ---------------------------------------------------------------------------
 # Build pipeline
@@ -226,6 +242,7 @@ func _build_lattice() -> void:
 			var b: int = tri[(e + 1) % 3]
 			edge_set[Vector2i(min(a, b), max(a, b))] = true
 	var edges: Array = edge_set.keys()
+	_edge_list = edges  # cache for per-frame lattice animation
 
 	# Edge tubes — low-poly cylinder with configurable radial facets.
 	var cyl := CylinderMesh.new()
@@ -262,6 +279,34 @@ func _build_lattice() -> void:
 		var pos := _wire_push(_displaced[i])
 		node_mm.set_instance_transform(i, Transform3D(node_basis, pos))
 	_node_mmi.multimesh = node_mm
+
+## Animated position of a static vertex — mirrors polymesh_deform.gdshader's
+## vertex animation (displace along the radial direction by simplex noise) so the
+## lattice tracks the GPU-animated surface.
+func _anim_offset(base: Vector3, t: float) -> Vector3:
+	var n := AshimaNoise.snoise3(base * anim_frequency + Vector3(0.0, t * anim_speed, 0.0))
+	return base + base.normalized() * (n * anim_amplitude)
+
+## Recompute the lattice MultiMesh transforms from animated vertex positions.
+## Updates instance transforms in place (no mesh/MultiMesh rebuild).
+func _update_lattice_anim(t: float) -> void:
+	if not is_instance_valid(_edge_mmi) or _edge_mmi.multimesh == null:
+		return
+	if not is_instance_valid(_node_mmi) or _node_mmi.multimesh == null:
+		return
+	var count := _displaced.size()
+	if _anim_buf.size() != count:
+		_anim_buf.resize(count)
+	for i in count:
+		_anim_buf[i] = _anim_offset(_displaced[i], t)
+	var node_mm := _node_mmi.multimesh
+	var node_basis := Basis().scaled(Vector3.ONE * node_radius)
+	for i in count:
+		node_mm.set_instance_transform(i, Transform3D(node_basis, _wire_push(_anim_buf[i])))
+	var edge_mm := _edge_mmi.multimesh
+	for i in _edge_list.size():
+		var key: Vector2i = _edge_list[i]
+		edge_mm.set_instance_transform(i, _edge_transform(_wire_push(_anim_buf[key.x]), _wire_push(_anim_buf[key.y])))
 
 ## Push a lattice vertex slightly outward to clear the solid surface in SOLID_WIREFRAME.
 ## Uses the radial direction (valid for icosphere-derived meshes).
@@ -563,6 +608,7 @@ func get_param_schema() -> Array:
 		]},
 		{"title": "Animation", "props": [
 			{"name": "animate", "type": "bool"},
+			{"name": "animate_lattice", "type": "bool"},
 			{"name": "anim_amplitude", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},
 			{"name": "anim_frequency", "type": "float", "min": 0.05, "max": 5.0, "step": 0.05},
 			{"name": "anim_speed", "type": "float", "min": 0.0, "max": 5.0, "step": 0.05},

@@ -18,6 +18,7 @@ enum LogoCorner { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT, CENTER }
 
 const WHITE_TEX := preload("res://resources/logos/optitrack_white.png")
 const BLACK_TEX := preload("res://resources/logos/optitrack_black.png")
+const SHADOW_SHADER := preload("res://shaders/hud_shadow.gdshader")
 
 @export var enabled: bool = false: set = set_enabled
 @export var logo: LogoSource = LogoSource.OPTITRACK_BLACK: set = set_logo
@@ -30,7 +31,15 @@ const BLACK_TEX := preload("res://resources/logos/optitrack_black.png")
 @export_range(0.0, 1.0) var opacity: float = 1.0: set = set_opacity
 @export_range(0.0, 200.0) var margin: float = 24.0: set = set_margin
 
+@export_group("Drop Shadow")
+@export var shadow_enabled: bool = false: set = set_shadow_enabled
+## Shadow color (alpha controls shadow strength). It fills the logo's silhouette.
+@export var shadow_color: Color = Color(0.0, 0.0, 0.0, 0.5): set = set_shadow_color
+@export_range(-100.0, 100.0) var shadow_offset_x: float = 8.0: set = set_shadow_offset_x
+@export_range(-100.0, 100.0) var shadow_offset_y: float = 8.0: set = set_shadow_offset_y
+
 var _rect: TextureRect
+var _shadow: TextureRect
 var _file_dlg: FileDialog
 
 func _ready() -> void:
@@ -44,12 +53,24 @@ func _ready() -> void:
 func _ensure_rect() -> void:
 	if is_instance_valid(_rect):
 		return
-	_rect = TextureRect.new()
-	_rect.name = "LogoRect"
-	_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE  # never intercept camera input
-	_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	# Shadow first so it renders BEHIND the logo. Same texture/size/stretch; a
+	# silhouette shader recolors the logo's alpha to the shadow color.
+	_shadow = _new_logo_rect("LogoShadow")
+	var mat := ShaderMaterial.new()
+	mat.shader = SHADOW_SHADER
+	_shadow.material = mat
+	add_child(_shadow)
+
+	_rect = _new_logo_rect("LogoRect")
 	add_child(_rect)
+
+func _new_logo_rect(rect_name: String) -> TextureRect:
+	var r := TextureRect.new()
+	r.name = rect_name
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE  # never intercept camera input
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	return r
 
 # --- texture + layout ------------------------------------------------------
 ## Re-resolve the texture (reads disk for custom logos) and refresh everything.
@@ -60,6 +81,13 @@ func _apply() -> void:
 	_rect.texture = tex
 	_rect.visible = enabled and tex != null
 	_rect.modulate = Color(1, 1, 1, opacity)
+	if is_instance_valid(_shadow):
+		_shadow.texture = tex
+		_shadow.visible = enabled and shadow_enabled and tex != null
+		_shadow.modulate = Color(1, 1, 1, opacity)
+		var m := _shadow.material as ShaderMaterial
+		if m:
+			m.set_shader_parameter("u_shadow_color", shadow_color)
 	_update_layout()
 
 func _resolve_texture() -> Texture2D:
@@ -108,6 +136,9 @@ func _update_layout() -> void:
 			x = (vp_size.x - w) * 0.5
 			y = (vp_size.y - h) * 0.5
 	_rect.position = Vector2(x, y)
+	if is_instance_valid(_shadow):
+		_shadow.size = Vector2(w, h)
+		_shadow.position = Vector2(x + shadow_offset_x, y + shadow_offset_y)
 
 # --- import ----------------------------------------------------------------
 ## Action button: pick any image file; on selection switch to the custom logo.
@@ -154,9 +185,31 @@ func set_opacity(v: float) -> void:
 	opacity = v
 	if is_instance_valid(_rect):
 		_rect.modulate = Color(1, 1, 1, opacity)
+	if is_instance_valid(_shadow):
+		_shadow.modulate = Color(1, 1, 1, opacity)
 
 func set_margin(v: float) -> void:
 	margin = v
+	_update_layout()
+
+func set_shadow_enabled(v: bool) -> void:
+	shadow_enabled = v
+	if is_instance_valid(_shadow):
+		_shadow.visible = enabled and shadow_enabled and _rect != null and _rect.texture != null
+
+func set_shadow_color(v: Color) -> void:
+	shadow_color = v
+	if is_instance_valid(_shadow):
+		var m := _shadow.material as ShaderMaterial
+		if m:
+			m.set_shader_parameter("u_shadow_color", v)
+
+func set_shadow_offset_x(v: float) -> void:
+	shadow_offset_x = v
+	_update_layout()
+
+func set_shadow_offset_y(v: float) -> void:
+	shadow_offset_y = v
 	_update_layout()
 
 ## Restore defaults (logo off) when a loaded composition has no "hud" block.
@@ -168,6 +221,10 @@ func reset_defaults() -> void:
 	size_scale = 0.16
 	opacity = 1.0
 	margin = 24.0
+	shadow_enabled = false
+	shadow_color = Color(0.0, 0.0, 0.0, 0.5)
+	shadow_offset_x = 8.0
+	shadow_offset_y = 8.0
 
 func get_param_schema() -> Array:
 	return [{
@@ -181,6 +238,10 @@ func get_param_schema() -> Array:
 			{"name": "size_scale", "type": "float", "min": 0.02, "max": 0.6, "step": 0.01},
 			{"name": "opacity", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
 			{"name": "margin", "type": "float", "min": 0.0, "max": 200.0, "step": 1.0},
+			{"name": "shadow_enabled", "type": "bool"},
+			{"name": "shadow_color", "type": "color"},
+			{"name": "shadow_offset_x", "type": "float", "min": -100.0, "max": 100.0, "step": 1.0},
+			{"name": "shadow_offset_y", "type": "float", "min": -100.0, "max": 100.0, "step": 1.0},
 			{"name": "import_logo", "type": "action", "label": "Import Logo…",
 				"hint": "Choose any image file to display as the logo"},
 		]

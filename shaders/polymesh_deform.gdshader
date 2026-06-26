@@ -4,7 +4,11 @@ shader_type spatial;
 // Displacement is driven entirely by uniforms (cheap, GPU-side). Flat per-face
 // normals are recomputed in the fragment stage from screen-space derivatives of
 // the view-space position, so the surface stays faceted even while it churns.
-render_mode cull_back, diffuse_burley, specular_schlick_ggx;
+// cull_disabled: heavily displaced surfaces fold over themselves, so back faces
+// must render or you see through the folds to the background (obvious on a dark
+// background). The fragment stage flips NORMAL via FRONT_FACING so both sides
+// shade correctly.
+render_mode cull_disabled, diffuse_burley, specular_schlick_ggx;
 
 uniform float u_time = 0.0;
 uniform float u_anim_amplitude = 0.0;   // 0 == static

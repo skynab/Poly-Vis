@@ -65,6 +65,15 @@ Procedural icosphere. Build pipeline:
 Setters call `rebuild()` for geometry changes, `_apply_color_and_polish()` for
 shader-only changes, or `_update_anim_uniforms()` for animation params.
 
+The solid surface animates on the GPU (shader vertex stage). `animate_lattice`
+also animates the wireframe/lattice: `_update_lattice_anim()` recomputes the
+MultiMesh transforms each frame from `_anim_offset()`, which mirrors the shader's
+displacement using `AshimaNoise.snoise3` (the CPU port of the shader's `snoise`)
+so the lattice tracks the surface — important in SOLID_WIREFRAME. Only runs when
+the lattice is visible; restores the static lattice once when toggled off. The
+surface shader is `cull_disabled` (double-sided) so heavily-displaced meshes that
+fold over themselves don't show the background through the folds.
+
 LOD system (`lod_enabled`, `lod_dist1`, `lod_dist2`): `_update_lod()` runs
 each frame when enabled, reduces subdivision level by 1 or 2 beyond the
 configured distances, rebuilds only when the level changes.
@@ -95,7 +104,10 @@ per second and scales `amount` proportionally to keep near the target FPS.
 `MeshInstance3D` rendering a sprawling crumpled-cloth surface — a heavily
 domain-warped subdivided plane (vs PolyMesh's centered icosphere). `_build_surface()`
 bakes a `(resolution+1)²` grid: domain-warped FBM height along Y (`amplitude`,
-`frequency`, `warp`) plus lateral XZ `fold` offsets, emitting unique verts per
+`frequency`, `warp`) plus lateral XZ `fold` offsets. `amplitude_variance` (+
+`_scale`) modulates the per-vertex `local_amp` by a separate low-frequency noise
+field so the sheet has tall dramatic zones and flatter calm zones instead of a
+uniform height (0 = uniform). Emits unique verts per
 triangle for flat normals. Per-vertex height-noise + fold magnitude are packed
 into UV2 for the shader's FOLD/NOISE color sources. Uses `polycloth.gdshader`;
 no wireframe/lattice. Setters mirror PolyMesh (`rebuild` for geometry,
@@ -145,6 +157,11 @@ Presets: VIRIDIS (1), PINK_RED_WHITE (2), PURPLE_YELLOW (3), GREEN_TEAL (4).
 Factory: `GradientColormap.create(Preset)`. Emits `changed` when the gradient
 changes so dependent shaders refresh.
 
+### AshimaNoise
+Static-only CPU port of the Ashima 3D simplex noise (`snoise3`) that the spatial
+shaders use. Lets CPU-animated geometry (PolyMesh's `animate_lattice`) match the
+GPU-animated surface, which calls the identical `snoise` in the shader.
+
 ### ParameterPanel
 Auto-generates controls from `get_param_schema()` arrays. Schema format:
 
@@ -183,6 +200,16 @@ CanvasLayer, above the 3D view) and is NOT the CaptureManager's `ui_layer`, so i
 stays visible in screenshots/recordings as a watermark. Schema-driven like
 SceneEnvironment; serialized under `"hud"`. `custom_path` is a `"string"` schema
 prop — serialized but rendered with no panel control (set via the Import button).
+
+Drop shadow (`shadow_enabled`, `shadow_color`, `shadow_offset_x/y`): a second
+TextureRect (`_shadow`) added before the logo rect so it renders behind. Uses the
+same texture/size/stretch via `hud_shadow.gdshader`, which fills the logo's alpha
+silhouette with `shadow_color` (the shadow is the logo's SHAPE in that color, not
+a tint of its pixels), offset by `shadow_offset_*`. `shadow_color.a` controls
+shadow strength; `opacity` fades both rects.
+
+NOTE: the enum is `LogoCorner`, not `Corner` — `Corner` is a Godot built-in enum
+and shadowing it is a parse error.
 
 ### CompositionIO
 Stateless serializer. `serialize(manager, camera, scene=null, hud=null)` →
@@ -238,7 +265,11 @@ Crumpled Silk and Sculpted Drape are the PolyCloth showcases (latter: curvature)
 ## Shader conventions
 
 ### polymesh_deform.gdshader (spatial)
-Uniforms set by PolyMesh setters each frame / on property change:
+`render_mode cull_disabled` (double-sided) so folded high-amplitude surfaces
+don't reveal the background through their folds; the fragment stage flips the
+flat normal via `FRONT_FACING`. The vertex `snoise` is mirrored on the CPU by
+`AshimaNoise.snoise3` for `animate_lattice`. Uniforms set by PolyMesh setters
+each frame / on property change:
 
 | Uniform | Set by |
 |---|---|
@@ -310,7 +341,7 @@ entirely by the schema.
     }
   ],
   "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2 },
-  "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0 },
+  "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0, "shadow_enabled": true, "shadow_color": [0.0, 0.0, 0.0, 0.5], "shadow_offset_x": 8.0, "shadow_offset_y": 8.0 },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
