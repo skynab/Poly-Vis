@@ -1,12 +1,12 @@
 extends PanelContainer
 ## Dockable side panel exposing all parameters of the selected visualization plus
 ## the camera, with live controls in collapsible sections (Prompt 4.1).
-## Phase 6 adds IO toolbar (presets/save/load/duplicate) and export controls
-## (screenshot and image-sequence recording).
+## Phase 6 adds IO toolbar (presets/save/load/duplicate) and export controls.
+## Phase 7 adds undo/redo integration, button tooltips, and an FPS readout.
 ##
 ## Controls are generated from each object's get_param_schema(), so every
-## parameter is covered without hand-wiring. Binding is two-way: control changes
-## call obj.set(name, value); selecting an object rebuilds controls from obj.get().
+## parameter is covered without hand-wiring. Slider changes record an undo step
+## only on drag_ended so dragging doesn't flood the history.
 class_name ParameterPanel
 
 const PRESET_NAMES := ["Viridis", "Pink-Red-White", "Purple-Yellow", "Green-Teal"]
@@ -20,6 +20,7 @@ var PRESET_VALUES := [
 var _manager: VisualizationManager
 var _camera: Node
 var _capture: CaptureManager
+var _undo: UndoHistory
 var _obj_selector: OptionButton
 var _object_host: VBoxContainer
 var _status_label: Label
@@ -30,10 +31,11 @@ var _load_dlg: FileDialog
 var _built := false
 
 func setup(manager: VisualizationManager, camera: Node,
-		capture: CaptureManager = null) -> void:
+		capture: CaptureManager = null, undo: UndoHistory = null) -> void:
 	_manager = manager
 	_camera = camera
 	_capture = capture
+	_undo = undo
 	if not _built:
 		_build_base()
 	if not _manager.objects_changed.is_connected(_refresh_object_list):
@@ -77,38 +79,41 @@ func _build_base() -> void:
 	root.add_child(bar)
 	_obj_selector = OptionButton.new()
 	_obj_selector.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_obj_selector.tooltip_text = "Select the active object"
 	_obj_selector.item_selected.connect(_on_object_selected)
 	bar.add_child(_obj_selector)
 
 	# Add / Remove toolbar
 	var bar2 := HBoxContainer.new()
 	root.add_child(bar2)
-	_add_button(bar2, "+ Mesh", func(): _manager.add_mesh())
-	_add_button(bar2, "+ Pts", func(): _manager.add_particles())
-	_add_button(bar2, "+ Inf", func(): _manager.add_influence())
-	_add_button(bar2, "Remove", func(): _manager.remove_selected())
+	_btn(bar2, "+ Mesh", "Add a new PolyMesh", func(): _manager.add_mesh())
+	_btn(bar2, "+ Pts",  "Add a new particle system", func(): _manager.add_particles())
+	_btn(bar2, "+ Inf",  "Add a new influence sphere", func(): _manager.add_influence())
+	_btn(bar2, "Remove", "Delete the selected object  [Delete]", func(): _manager.remove_selected())
 
 	# IO toolbar: presets | save | load | duplicate
 	var io_bar := HBoxContainer.new()
 	root.add_child(io_bar)
 	var preset_opt := OptionButton.new()
 	preset_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preset_opt.tooltip_text = "Load a built-in preset composition"
 	preset_opt.add_item("Presets…")
 	for pname in BuiltInPresets.PRESETS:
 		preset_opt.add_item(pname)
 	preset_opt.item_selected.connect(_on_preset_selected)
 	io_bar.add_child(preset_opt)
-	_add_button(io_bar, "Save", func(): _open_save())
-	_add_button(io_bar, "Load", func(): _open_load())
-	_add_button(io_bar, "Dup", func(): _duplicate_selected())
+	_btn(io_bar, "Save", "Save composition to a JSON file  [Ctrl+S]", func(): _open_save())
+	_btn(io_bar, "Load", "Load composition from a JSON file", func(): _open_load())
+	_btn(io_bar, "Dup",  "Duplicate selected object  [Ctrl+D]", func(): duplicate_selected())
 
 	# Export toolbar: screenshot | 2x | record | fps
 	var ex_bar := HBoxContainer.new()
 	root.add_child(ex_bar)
-	_add_button(ex_bar, "Capture", func(): _do_screenshot(1))
-	_add_button(ex_bar, "2×", func(): _do_screenshot(2))
+	_btn(ex_bar, "Capture", "Screenshot (UI hidden, saved to user://)", func(): _do_screenshot(1))
+	_btn(ex_bar, "2×",      "2× upscaled screenshot", func(): _do_screenshot(2))
 	_rec_button = Button.new()
 	_rec_button.text = "● Rec"
+	_rec_button.tooltip_text = "Start/stop image-sequence recording to user://"
 	_rec_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_rec_button.pressed.connect(_toggle_recording)
 	ex_bar.add_child(_rec_button)
@@ -117,15 +122,26 @@ func _build_base() -> void:
 	_fps_spin.max_value = 60
 	_fps_spin.value = 24
 	_fps_spin.suffix = "fps"
+	_fps_spin.tooltip_text = "Recording frame rate"
 	_fps_spin.custom_minimum_size = Vector2(72, 0)
 	ex_bar.add_child(_fps_spin)
 
-	# Status label (shows save/load/capture feedback)
+	# Status / hint line
 	_status_label = Label.new()
 	_status_label.add_theme_font_size_override("font_size", 10)
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_status_label.custom_minimum_size = Vector2(0, 14)
 	root.add_child(_status_label)
+
+	root.add_child(HSeparator.new())
+
+	# Shortcut reminder
+	var hint := Label.new()
+	hint.text = "Tab cycle · H panel · Del remove · F focus · Space anim"
+	hint.add_theme_font_size_override("font_size", 9)
+	hint.modulate = Color(1, 1, 1, 0.45)
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	root.add_child(hint)
 
 	root.add_child(HSeparator.new())
 
@@ -146,9 +162,10 @@ func _build_base() -> void:
 	_object_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(_object_host)
 
-func _add_button(parent: Node, text: String, cb: Callable) -> void:
+func _btn(parent: Node, text: String, tip: String, cb: Callable) -> void:
 	var b := Button.new()
 	b.text = text
+	b.tooltip_text = tip
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.pressed.connect(cb)
 	parent.add_child(b)
@@ -182,7 +199,7 @@ func show_object(obj: Node3D) -> void:
 		_obj_selector.select(idx)
 
 # ---------------------------------------------------------------------------
-# IO actions
+# IO actions (some are public for InputManager)
 # ---------------------------------------------------------------------------
 func _on_preset_selected(idx: int) -> void:
 	if idx == 0:
@@ -200,6 +217,9 @@ func _open_load() -> void:
 	_ensure_dialogs()
 	_load_dlg.popup_centered()
 
+func trigger_save() -> void:
+	_open_save()
+
 func _do_save(path: String) -> void:
 	var data := CompositionIO.serialize(_manager, _camera)
 	var err := CompositionIO.save_json(path, data)
@@ -213,7 +233,7 @@ func _do_load(path: String) -> void:
 	CompositionIO.apply(data, _manager, _camera)
 	_show_status("Loaded: " + path.get_file())
 
-func _duplicate_selected() -> void:
+func duplicate_selected() -> void:
 	if _manager.selected == null:
 		return
 	var type := _manager._type_label(_manager.selected)
@@ -306,26 +326,21 @@ func _add_section(host: VBoxContainer, title: String) -> VBoxContainer:
 	return body
 
 func _add_control(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
-	var type: String = prop["type"]
-	match type:
-		"float", "int":
-			_add_number(body, obj, prop)
-		"bool":
-			_add_bool(body, obj, prop)
-		"color":
-			_add_color(body, obj, prop)
-		"enum":
-			_add_enum(body, obj, prop)
-		"vector3":
-			_add_vector3(body, obj, prop)
-		"colormap_preset":
-			_add_colormap(body, obj, prop)
+	match prop["type"]:
+		"float", "int":   _add_number(body, obj, prop)
+		"bool":           _add_bool(body, obj, prop)
+		"color":          _add_color(body, obj, prop)
+		"enum":           _add_enum(body, obj, prop)
+		"vector3":        _add_vector3(body, obj, prop)
+		"colormap_preset": _add_colormap(body, obj, prop)
 
-func _row(body: VBoxContainer, label_text: String) -> HBoxContainer:
+func _row(body: VBoxContainer, label_text: String, tip: String = "") -> HBoxContainer:
 	var row := HBoxContainer.new()
 	var label := Label.new()
 	label.text = label_text
 	label.custom_minimum_size = Vector2(120, 0)
+	if tip:
+		label.tooltip_text = tip
 	row.add_child(label)
 	body.add_child(row)
 	return row
@@ -333,7 +348,7 @@ func _row(body: VBoxContainer, label_text: String) -> HBoxContainer:
 func _add_number(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
 	var is_int: bool = prop["type"] == "int"
-	var row := _row(body, pname.capitalize())
+	var row := _row(body, pname.capitalize(), prop.get("hint", ""))
 	var slider := HSlider.new()
 	slider.min_value = prop.get("min", 0.0)
 	slider.max_value = prop.get("max", 1.0)
@@ -346,42 +361,65 @@ func _add_number(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	readout.text = _fmt(obj.get(pname), is_int)
 	row.add_child(readout)
+
+	# Capture value before drag so undo records the before/after pair.
+	var drag_start: Variant = null
+	slider.drag_started.connect(func():
+		drag_start = obj.get(pname))
 	slider.value_changed.connect(func(v: float):
 		var out: Variant = int(round(v)) if is_int else v
 		obj.set(pname, out)
 		readout.text = _fmt(out, is_int))
+	slider.drag_ended.connect(func(changed: bool):
+		if changed and _undo != null and drag_start != null:
+			_undo.record_property(obj, pname, drag_start, obj.get(pname)))
 
 func _add_bool(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
-	var row := _row(body, pname.capitalize())
+	var row := _row(body, pname.capitalize(), prop.get("hint", ""))
 	var cb := CheckButton.new()
 	cb.button_pressed = obj.get(pname)
 	row.add_child(cb)
-	cb.toggled.connect(func(p: bool): obj.set(pname, p))
+	cb.toggled.connect(func(p: bool):
+		var old := obj.get(pname)
+		obj.set(pname, p)
+		if _undo:
+			_undo.record_property(obj, pname, old, p))
 
 func _add_color(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
-	var row := _row(body, pname.capitalize())
+	var row := _row(body, pname.capitalize(), prop.get("hint", ""))
 	var picker := ColorPickerButton.new()
 	picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	picker.color = obj.get(pname)
 	row.add_child(picker)
-	picker.color_changed.connect(func(c: Color): obj.set(pname, c))
+	var color_before: Color
+	picker.about_to_popup.connect(func():
+		color_before = obj.get(pname))
+	picker.color_changed.connect(func(c: Color):
+		obj.set(pname, c))
+	picker.popup_closed.connect(func():
+		if _undo:
+			_undo.record_property(obj, pname, color_before, obj.get(pname)))
 
 func _add_enum(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
-	var row := _row(body, pname.capitalize())
+	var row := _row(body, pname.capitalize(), prop.get("hint", ""))
 	var opt := OptionButton.new()
 	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for o in prop["options"]:
 		opt.add_item(o)
 	opt.selected = int(obj.get(pname))
 	row.add_child(opt)
-	opt.item_selected.connect(func(i: int): obj.set(pname, i))
+	opt.item_selected.connect(func(i: int):
+		var old := obj.get(pname)
+		obj.set(pname, i)
+		if _undo:
+			_undo.record_property(obj, pname, old, i))
 
 func _add_vector3(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
-	var row := _row(body, pname.capitalize())
+	var row := _row(body, pname.capitalize(), prop.get("hint", ""))
 	var current: Vector3 = obj.get(pname)
 	var spins: Array[SpinBox] = []
 	for axis in 3:
@@ -398,7 +436,7 @@ func _add_vector3(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 			obj.set(pname, Vector3(spins[0].value, spins[1].value, spins[2].value)))
 
 func _add_colormap(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
-	var row := _row(body, "Colormap")
+	var row := _row(body, "Colormap", "Gradient used to color this object")
 	var opt := OptionButton.new()
 	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for n in PRESET_NAMES:

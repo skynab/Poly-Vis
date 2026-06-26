@@ -51,7 +51,14 @@ const DEFORM_SHADER := preload("res://shaders/polymesh_deform.gdshader")
 @export_group("Wireframe / Lattice")
 @export_range(0.001, 0.1) var edge_radius: float = 0.012: set = set_edge_radius
 @export_range(0.001, 0.2) var node_radius: float = 0.03: set = set_node_radius
-@export var lattice_color: Color = Color(0.75, 0.76, 0.8): set = set_lattice_color
+@export var edge_color: Color = Color(0.75, 0.76, 0.8): set = set_edge_color
+@export var node_color: Color = Color(0.92, 0.96, 1.0): set = set_node_color
+## Emissive glow strength on vertex nodes so they pop against the surface.
+@export_range(0.0, 3.0) var node_glow: float = 0.8: set = set_node_glow
+## Alpha for the entire lattice — lets the wireframe float over the solid.
+@export_range(0.0, 1.0) var lattice_opacity: float = 1.0: set = set_lattice_opacity
+## Radial segments on the edge cylinders; 4 = square cross-section (low-poly match).
+@export_range(3, 8) var edge_facets: int = 4: set = set_edge_facets
 
 @export_group("Animation")
 ## Animate the solid surface with flowing displacement (Prompt 1.3).
@@ -60,6 +67,12 @@ const DEFORM_SHADER := preload("res://shaders/polymesh_deform.gdshader")
 @export_range(0.05, 5.0) var anim_frequency: float = 1.2: set = set_anim_frequency
 @export_range(0.0, 5.0) var anim_speed: float = 0.6: set = set_anim_speed
 
+@export_group("LOD")
+## Drop 1 subdivision level beyond lod_dist1, 2 levels beyond lod_dist2.
+@export var lod_enabled: bool = false: set = set_lod_enabled
+@export_range(1.0, 50.0) var lod_dist1: float = 10.0
+@export_range(5.0, 100.0) var lod_dist2: float = 25.0
+
 # --- internal state --------------------------------------------------------
 var _unit_verts: PackedVector3Array      # deduplicated unit-sphere directions
 var _faces: PackedInt32Array              # triangle indices into _unit_verts
@@ -67,7 +80,10 @@ var _displaced: PackedVector3Array        # static noise-displaced positions
 var _surface_mat: ShaderMaterial
 var _edge_mmi: MultiMeshInstance3D
 var _node_mmi: MultiMeshInstance3D
-var _lattice_mat: StandardMaterial3D
+var _edge_mat: StandardMaterial3D
+var _node_mat: StandardMaterial3D
+var _effective_subdivisions: int = 3     # actual level used (may be < subdivisions when LOD kicks in)
+var _lod_level: int = -1                 # -1 forces rebuild on first check
 
 func _ready() -> void:
 	_ensure_children()
@@ -77,6 +93,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _surface_mat:
 		_surface_mat.set_shader_parameter("u_time", float(Time.get_ticks_msec()) / 1000.0)
+	if lod_enabled:
+		_update_lod()
 
 # ---------------------------------------------------------------------------
 # Build pipeline
@@ -84,6 +102,8 @@ func _process(_delta: float) -> void:
 func rebuild() -> void:
 	if not is_inside_tree():
 		return
+	_effective_subdivisions = subdivisions
+	_lod_level = -1  # force re-check next frame
 	_ensure_children()
 	_generate_icosphere()
 	_displace_vertices()
@@ -105,10 +125,15 @@ func _ensure_children() -> void:
 		_node_mmi = MultiMeshInstance3D.new()
 		_node_mmi.name = "VertexNodes"
 		add_child(_node_mmi)
-	if not _lattice_mat:
-		_lattice_mat = StandardMaterial3D.new()
-		_lattice_mat.metallic = 0.9
-		_lattice_mat.roughness = 0.25
+	if not _edge_mat:
+		_edge_mat = StandardMaterial3D.new()
+		_edge_mat.metallic = 0.5
+		_edge_mat.roughness = 0.4
+	if not _node_mat:
+		_node_mat = StandardMaterial3D.new()
+		_node_mat.metallic = 0.3
+		_node_mat.roughness = 0.3
+		_node_mat.emission_enabled = true
 
 func _generate_icosphere() -> void:
 	var t := (1.0 + sqrt(5.0)) / 2.0
@@ -127,7 +152,7 @@ func _generate_icosphere() -> void:
 		4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1,
 	])
 
-	for _i in range(subdivisions):
+	for _i in range(_effective_subdivisions):
 		var midpoint_cache := {}
 		var new_faces := PackedInt32Array()
 		for f in range(0, faces.size(), 3):
@@ -186,50 +211,76 @@ func _build_solid_surface() -> void:
 	material_override = _surface_mat
 
 func _build_lattice() -> void:
-	_lattice_mat.albedo_color = lattice_color
+	_apply_lattice_materials()
 
-	# Unique edges from the triangle list.
+	# Deduplicated edge list.
 	var edge_set := {}
 	for f in range(0, _faces.size(), 3):
-		var idx := [_faces[f], _faces[f + 1], _faces[f + 2]]
+		var tri := [_faces[f], _faces[f + 1], _faces[f + 2]]
 		for e in 3:
-			var a: int = idx[e]
-			var b: int = idx[(e + 1) % 3]
+			var a: int = tri[e]
+			var b: int = tri[(e + 1) % 3]
 			edge_set[Vector2i(min(a, b), max(a, b))] = true
-	var edges := edge_set.keys()
+	var edges: Array = edge_set.keys()
 
-	# Edge tubes via MultiMesh of unit cylinders.
+	# Edge tubes — low-poly cylinder with configurable radial facets.
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = 1.0
 	cyl.bottom_radius = 1.0
 	cyl.height = 1.0
-	cyl.radial_segments = 6
+	cyl.radial_segments = edge_facets
 	cyl.rings = 0
-	cyl.material = _lattice_mat
+	cyl.material = _edge_mat
 	var edge_mm := MultiMesh.new()
 	edge_mm.transform_format = MultiMesh.TRANSFORM_3D
 	edge_mm.mesh = cyl
 	edge_mm.instance_count = edges.size()
 	for i in edges.size():
 		var key: Vector2i = edges[i]
-		edge_mm.set_instance_transform(i, _edge_transform(_displaced[key.x], _displaced[key.y]))
+		var pa := _wire_push(_displaced[key.x])
+		var pb := _wire_push(_displaced[key.y])
+		edge_mm.set_instance_transform(i, _edge_transform(pa, pb))
 	_edge_mmi.multimesh = edge_mm
 
-	# Vertex nodes via MultiMesh of small spheres.
+	# Vertex nodes — low-poly sphere with emissive node material.
 	var sph := SphereMesh.new()
 	sph.radius = 1.0
 	sph.height = 2.0
-	sph.radial_segments = 8
-	sph.rings = 4
-	sph.material = _lattice_mat
+	sph.radial_segments = 6
+	sph.rings = 3
+	sph.material = _node_mat
 	var node_mm := MultiMesh.new()
 	node_mm.transform_format = MultiMesh.TRANSFORM_3D
 	node_mm.mesh = sph
 	node_mm.instance_count = _displaced.size()
 	var node_basis := Basis().scaled(Vector3.ONE * node_radius)
 	for i in _displaced.size():
-		node_mm.set_instance_transform(i, Transform3D(node_basis, _displaced[i]))
+		var pos := _wire_push(_displaced[i])
+		node_mm.set_instance_transform(i, Transform3D(node_basis, pos))
 	_node_mmi.multimesh = node_mm
+
+## Push a lattice vertex slightly outward to clear the solid surface in SOLID_WIREFRAME.
+## Uses the radial direction (valid for icosphere-derived meshes).
+func _wire_push(pos: Vector3) -> Vector3:
+	if render_mode != RenderMode.SOLID_WIREFRAME:
+		return pos
+	var len := pos.length()
+	if len < 0.0001:
+		return pos
+	return pos + (pos / len) * (edge_radius * 1.5)
+
+## Update material colors, transparency, and emission without rebuilding geometry.
+func _apply_lattice_materials() -> void:
+	if not _edge_mat or not _node_mat:
+		return
+	var use_alpha := lattice_opacity < 0.999
+	var trans := BaseMaterial3D.TRANSPARENCY_ALPHA if use_alpha else BaseMaterial3D.TRANSPARENCY_DISABLED
+	_edge_mat.transparency = trans
+	_edge_mat.albedo_color = Color(edge_color.r, edge_color.g, edge_color.b, lattice_opacity)
+	_node_mat.transparency = trans
+	_node_mat.albedo_color = Color(node_color.r, node_color.g, node_color.b, lattice_opacity)
+	_node_mat.emission = node_color
+	_node_mat.emission_energy_multiplier = node_glow
 
 func _edge_transform(a: Vector3, b: Vector3) -> Transform3D:
 	var axis := b - a
@@ -332,10 +383,26 @@ func set_node_radius(v: float) -> void:
 	if is_inside_tree():
 		_build_lattice()
 
-func set_lattice_color(v: Color) -> void:
-	lattice_color = v
-	if _lattice_mat:
-		_lattice_mat.albedo_color = v
+func set_edge_color(v: Color) -> void:
+	edge_color = v
+	_apply_lattice_materials()
+
+func set_node_color(v: Color) -> void:
+	node_color = v
+	_apply_lattice_materials()
+
+func set_node_glow(v: float) -> void:
+	node_glow = v
+	_apply_lattice_materials()
+
+func set_lattice_opacity(v: float) -> void:
+	lattice_opacity = v
+	_apply_lattice_materials()
+
+func set_edge_facets(v: int) -> void:
+	edge_facets = clampi(v, 3, 8)
+	if is_inside_tree():
+		_build_lattice()
 
 func set_animate(v: bool) -> void:
 	animate = v
@@ -352,6 +419,36 @@ func set_anim_frequency(v: float) -> void:
 func set_anim_speed(v: float) -> void:
 	anim_speed = v
 	_update_anim_uniforms()
+
+func set_lod_enabled(v: bool) -> void:
+	lod_enabled = v
+	if not v:
+		# Restore full-res geometry if LOD had downgraded it.
+		if _effective_subdivisions != subdivisions:
+			rebuild()
+
+func _update_lod() -> void:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var dist := global_position.distance_to(cam.global_position)
+	var new_level := 0
+	if dist > lod_dist2:
+		new_level = 2
+	elif dist > lod_dist1:
+		new_level = 1
+	if new_level == _lod_level:
+		return
+	_lod_level = new_level
+	var target: int = max(0, subdivisions - new_level)
+	if target == _effective_subdivisions:
+		return
+	_effective_subdivisions = target
+	_generate_icosphere()
+	_displace_vertices()
+	_build_solid_surface()
+	_build_lattice()
+	_apply_render_mode()
 
 func set_colormap(v: GradientColormap) -> void:
 	if colormap and colormap.changed.is_connected(_apply_color_and_polish):
@@ -442,12 +539,21 @@ func get_param_schema() -> Array:
 		{"title": "Wireframe / Lattice", "props": [
 			{"name": "edge_radius", "type": "float", "min": 0.001, "max": 0.1, "step": 0.001},
 			{"name": "node_radius", "type": "float", "min": 0.001, "max": 0.2, "step": 0.001},
-			{"name": "lattice_color", "type": "color"},
+			{"name": "edge_color", "type": "color"},
+			{"name": "node_color", "type": "color"},
+			{"name": "node_glow", "type": "float", "min": 0.0, "max": 3.0, "step": 0.05},
+			{"name": "lattice_opacity", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+			{"name": "edge_facets", "type": "int", "min": 3, "max": 8, "step": 1},
 		]},
 		{"title": "Animation", "props": [
 			{"name": "animate", "type": "bool"},
 			{"name": "anim_amplitude", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},
 			{"name": "anim_frequency", "type": "float", "min": 0.05, "max": 5.0, "step": 0.05},
 			{"name": "anim_speed", "type": "float", "min": 0.0, "max": 5.0, "step": 0.05},
+		]},
+		{"title": "LOD", "props": [
+			{"name": "lod_enabled", "type": "bool"},
+			{"name": "lod_dist1", "type": "float", "min": 1.0, "max": 50.0, "step": 0.5},
+			{"name": "lod_dist2", "type": "float", "min": 5.0, "max": 100.0, "step": 1.0},
 		]},
 	]

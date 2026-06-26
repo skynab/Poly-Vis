@@ -36,6 +36,11 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 @export_range(0.0, 4.0) var drag: float = 0.4: set = set_drag
 @export var flow_seed: float = 0.0: set = set_flow_seed
 
+@export_group("Performance")
+## Automatically scales particle count down when FPS drops below budget_target_fps.
+@export var auto_budget: bool = false: set = set_auto_budget
+@export_range(15, 120) var budget_target_fps: int = 60
+
 @export_group("Color")
 ## Shared colormap (Prompt 3.1). When null, falls back to color_a/color_b lerp.
 @export var colormap: GradientColormap: set = set_colormap
@@ -46,12 +51,33 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 @export var color_b: Color = Color(0.95, 0.95, 0.2): set = set_color_b
 
 var _mat: ShaderMaterial
+var _budget_cooldown: float = 0.0
+var _fps_samples: Array[float] = []
 
 func _ready() -> void:
 	_ensure_material()
 	_ensure_draw_pass()
 	_apply_all()
 	emitting = true
+
+func _process(delta: float) -> void:
+	if auto_budget:
+		_budget_tick(delta)
+
+func _budget_tick(delta: float) -> void:
+	_budget_cooldown -= delta
+	if _budget_cooldown > 0.0:
+		return
+	_budget_cooldown = 1.0  # re-evaluate once per second
+	_fps_samples.append(float(Engine.get_frames_per_second()))
+	if _fps_samples.size() > 5:
+		_fps_samples.pop_front()
+	var avg := 0.0
+	for s in _fps_samples:
+		avg += s
+	avg /= _fps_samples.size()
+	var ratio := avg / float(budget_target_fps)
+	amount = max(int(count * clampf(ratio, 0.05, 1.0)), 1)
 
 # ---------------------------------------------------------------------------
 func _ensure_material() -> void:
@@ -210,6 +236,13 @@ func set_flow_seed(v: float) -> void:
 	flow_seed = v
 	_set_param("u_seed", v)
 
+func set_auto_budget(v: bool) -> void:
+	auto_budget = v
+	if not v:
+		amount = count  # restore full count
+	_fps_samples.clear()
+	_budget_cooldown = 0.0
+
 func set_color_a(v: Color) -> void:
 	color_a = v
 	_set_param("u_color_a", v)
@@ -270,6 +303,10 @@ func get_param_schema() -> Array:
 			{"name": "flow_speed", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
 			{"name": "turbulence", "type": "float", "min": 0.0, "max": 10.0, "step": 0.1},
 			{"name": "drag", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
+		]},
+		{"title": "Performance", "props": [
+			{"name": "auto_budget", "type": "bool"},
+			{"name": "budget_target_fps", "type": "int", "min": 15, "max": 120, "step": 5},
 		]},
 		{"title": "Color", "props": [
 			{"name": "colormap", "type": "colormap_preset"},
