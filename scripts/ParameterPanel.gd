@@ -19,6 +19,7 @@ var PRESET_VALUES := [
 
 var _manager: VisualizationManager
 var _camera: Node
+var _scene: Object  # SceneEnvironment — bg color + bloom, rendered after camera
 var _capture: CaptureManager
 var _undo: UndoHistory
 var _obj_selector: OptionButton
@@ -31,9 +32,11 @@ var _load_dlg: FileDialog
 var _built := false
 
 func setup(manager: VisualizationManager, camera: Node,
-		capture: CaptureManager = null, undo: UndoHistory = null) -> void:
+		capture: CaptureManager = null, undo: UndoHistory = null,
+		scene: Object = null) -> void:
 	_manager = manager
 	_camera = camera
+	_scene = scene
 	_capture = capture
 	_undo = undo
 	if not _built:
@@ -88,6 +91,7 @@ func _build_base() -> void:
 	root.add_child(bar2)
 	_btn(bar2, "+ Mesh", "Add a new PolyMesh", func(): _manager.add_mesh())
 	_btn(bar2, "+ Pts",  "Add a new particle system", func(): _manager.add_particles())
+	_btn(bar2, "+ Cloth", "Add a new crumpled-cloth surface", func(): _manager.add_cloth())
 	_btn(bar2, "+ Inf",  "Add a new influence sphere", func(): _manager.add_influence())
 	_btn(bar2, "Remove", "Delete the selected object  [Delete]", func(): _manager.remove_selected())
 
@@ -158,6 +162,8 @@ func _build_base() -> void:
 
 	if _camera and _camera.has_method("get_param_schema"):
 		_populate(content, _camera, _camera.get_param_schema())
+	if _scene and _scene.has_method("get_param_schema"):
+		_populate(content, _scene, _scene.get_param_schema())
 	_object_host = VBoxContainer.new()
 	_object_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(_object_host)
@@ -206,7 +212,7 @@ func _on_preset_selected(idx: int) -> void:
 		return
 	var names := BuiltInPresets.PRESETS.keys()
 	var data: Dictionary = BuiltInPresets.PRESETS[names[idx - 1]]
-	CompositionIO.apply(data, _manager, _camera)
+	CompositionIO.apply(data, _manager, _camera, _scene)
 	_show_status("Loaded preset: " + names[idx - 1])
 
 func _open_save() -> void:
@@ -221,7 +227,7 @@ func trigger_save() -> void:
 	_open_save()
 
 func _do_save(path: String) -> void:
-	var data := CompositionIO.serialize(_manager, _camera)
+	var data := CompositionIO.serialize(_manager, _camera, _scene)
 	var err := CompositionIO.save_json(path, data)
 	_show_status("Saved: " + path.get_file() if err == OK else "Save failed (%d)" % err)
 
@@ -230,7 +236,7 @@ func _do_load(path: String) -> void:
 	if data.is_empty():
 		_show_status("Load failed: empty or invalid file")
 		return
-	CompositionIO.apply(data, _manager, _camera)
+	CompositionIO.apply(data, _manager, _camera, _scene)
 	_show_status("Loaded: " + path.get_file())
 
 func duplicate_selected() -> void:

@@ -8,16 +8,34 @@ extends RefCounted
 class_name CompositionIO
 
 # --- serialize -------------------------------------------------------------
-static func serialize(manager: VisualizationManager, camera: Node) -> Dictionary:
+static func serialize(manager: VisualizationManager, camera: Node,
+		scene: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
-	var cam := {}
-	if camera.has_method("get_param_schema"):
-		for section in camera.get_param_schema():
+	var result := {"version": 1, "objects": objs, "camera": _schema_to_dict(camera)}
+	if scene and scene.has_method("get_param_schema"):
+		result["scene"] = _schema_to_dict(scene)
+	return result
+
+## Encode every schema property of a single object into a flat Dictionary.
+static func _schema_to_dict(obj: Object) -> Dictionary:
+	var d := {}
+	if obj and obj.has_method("get_param_schema"):
+		for section in obj.get_param_schema():
 			for prop in section["props"]:
-				cam[prop["name"]] = _encode(prop["type"], camera.get(prop["name"]))
-	return {"version": 1, "objects": objs, "camera": cam}
+				d[prop["name"]] = _encode(prop["type"], obj.get(prop["name"]))
+	return d
+
+## Decode a flat Dictionary back onto a single object's schema properties.
+static func _dict_to_schema(obj: Object, d: Dictionary) -> void:
+	if obj == null or not obj.has_method("get_param_schema"):
+		return
+	for section in obj.get_param_schema():
+		for prop in section["props"]:
+			var pn: String = prop["name"]
+			if d.has(pn):
+				obj.set(pn, _decode(prop["type"], d[pn]))
 
 static func serialize_object(obj: Node3D, type_label: String) -> Dictionary:
 	var params := {}
@@ -55,17 +73,18 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 	return {"preset": int(cm.preset), "offsets": offs, "colors": cols}
 
 # --- deserialize -----------------------------------------------------------
-static func apply(data: Dictionary, manager: VisualizationManager, camera: Node) -> void:
+static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
+		scene: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
-	var cam: Dictionary = data.get("camera", {})
-	if camera.has_method("get_param_schema"):
-		for section in camera.get_param_schema():
-			for prop in section["props"]:
-				var pn: String = prop["name"]
-				if cam.has(pn):
-					camera.set(pn, _decode(prop["type"], cam[pn]))
+	_dict_to_schema(camera, data.get("camera", {}))
+	if scene:
+		# Reset first so a composition with no "scene" block restores the
+		# default white room instead of inheriting the previous bloom/bg.
+		if scene.has_method("reset_defaults"):
+			scene.reset_defaults()
+		_dict_to_schema(scene, data.get("scene", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 
@@ -76,6 +95,8 @@ static func create_object(data: Dictionary, manager: VisualizationManager) -> No
 			obj = manager.add_mesh()
 		"PolyParticles":
 			obj = manager.add_particles()
+		"PolyCloth":
+			obj = manager.add_cloth()
 		"Influence":
 			obj = manager.add_influence()
 		_:

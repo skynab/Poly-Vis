@@ -56,6 +56,185 @@ const PRESETS: Dictionary = {
 		}
 	},
 
+	"Neon Rain": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyParticles",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"count": 14000,
+					"particle_lifetime": 10.0,
+					"emitter_shape": 2,
+					"emitter_extents": [6.0, 6.0, 6.0],
+					"particle_shape": 3,
+					"particle_size": 0.09,
+					"particle_size_curve": false,
+					"particle_rotation_speed": 0.6,
+					"direction": [0.0, -1.0, 0.0],
+					"initial_speed": 0.3,
+					"spread": 0.6,
+					"gravity": [0.0, -0.15, 0.0],
+					"flow_scale": 0.5,
+					"flow_speed": 0.25,
+					"turbulence": 1.5,
+					"drag": 0.6,
+					"flow_seed": 11,
+					"colormap": {"preset": 4, "offsets": [], "colors": []},
+					"color_source": 2,
+					"color_min": 0.0,
+					"color_max": 1.0,
+					"color_a": [0.2, 1.0, 0.7, 1.0],
+					"color_b": [0.3, 0.6, 1.0, 1.0],
+					"particle_brightness": 3.8
+				}
+			},
+			{
+				"type": "PolyParticles",
+				"position": [0.0, -1.5, 0.0],
+				"params": {
+					"count": 2500,
+					"particle_lifetime": 3.0,
+					"emitter_shape": 1,
+					"emitter_extents": [0.3, 0.3, 0.3],
+					"particle_shape": 4,
+					"particle_size": 0.06,
+					"particle_size_curve": true,
+					"particle_rotation_speed": 2.0,
+					"direction": [0.0, 1.0, 0.0],
+					"initial_speed": 4.0,
+					"spread": 0.25,
+					"gravity": [0.0, -0.4, 0.0],
+					"flow_scale": 0.8,
+					"flow_speed": 0.5,
+					"turbulence": 2.5,
+					"drag": 0.3,
+					"flow_seed": 5,
+					"colormap": {"preset": 3, "offsets": [], "colors": []},
+					"color_source": 2,
+					"color_min": 0.0,
+					"color_max": 1.0,
+					"color_a": [0.8, 0.4, 1.0, 1.0],
+					"color_b": [1.0, 0.95, 0.6, 1.0],
+					"particle_brightness": 4.0
+				}
+			},
+			{
+				"type": "Influence",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"enabled": true,
+					"mode": 0,
+					"radius": 3.0,
+					"strength": 3.0,
+					"influence_color": [0.2, 0.9, 1.0, 1.0],
+					"follow_mouse": true
+				}
+			}
+		],
+		"scene": {
+			"bg_color": [0.02, 0.02, 0.05, 1.0],
+			"bloom_enabled": true,
+			"bloom_intensity": 1.2
+		},
+		"camera": {
+			"target": [0.0, 0.0, 0.0],
+			"distance": 8.0
+		}
+	},
+
+	"Petal Storm": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyMesh",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"subdivisions": 4,
+					"radius": 2.2,
+					"noise_amplitude": 1.5,
+					"noise_frequency": 0.32,
+					"noise_seed": 17,
+					"render_mode": 0,
+					"base_color": [0.85, 0.2, 0.45, 1.0],
+					"surface_roughness": 0.85,
+					"surface_metallic": 0.0,
+					"colormap": {"preset": 2, "offsets": [], "colors": []},
+					"color_source": 2,
+					"color_min": -1.0,
+					"color_max": 1.0,
+					"posterize": false,
+					"posterize_steps": 5,
+					"contrast": 1.2,
+					"brightness": 1.1,
+					"rim_strength": 0.0,
+					"rim_power": 2.5,
+					"rim_color": [1.0, 1.0, 1.0, 1.0],
+					"translucency": 0.0,
+					"edge_radius": 0.012,
+					"node_radius": 0.03,
+					"edge_color": [0.75, 0.76, 0.8, 1.0],
+					"node_color": [0.92, 0.96, 1.0, 1.0],
+					"node_glow": 0.8,
+					"lattice_opacity": 1.0,
+					"edge_facets": 4,
+					"animate": true,
+					"anim_amplitude": 0.55,
+					"anim_frequency": 0.48,
+					"anim_speed": 0.28
+				}
+			}
+		],
+		"camera": {
+			"target": [0.0, 0.0, 0.0],
+			"distance": 3.2
+		}
+	},
+
+	"Crumpled Silk": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyCloth",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"extent": 7.0,
+					"resolution": 90,
+					"amplitude": 4.0,
+					"frequency": 0.16,
+					"warp": 1.4,
+					"fold": 0.7,
+					"noise_seed": 3,
+					"surface_roughness": 0.85,
+					"surface_metallic": 0.0,
+					"colormap": {"preset": 2, "offsets": [], "colors": []},
+					"color_source": 2,
+					"color_min": -1.0,
+					"color_max": 1.0,
+					"posterize": false,
+					"posterize_steps": 5,
+					"contrast": 1.1,
+					"brightness": 1.05,
+					"cool_color": [0.62, 0.66, 0.98, 1.0],
+					"cool_strength": 0.75,
+					"cool_dir": [0.3, 1.0, 0.2],
+					"rim_strength": 0.25,
+					"rim_power": 2.5,
+					"rim_color": [1.0, 1.0, 1.0, 1.0],
+					"translucency": 0.0,
+					"animate": true,
+					"anim_amplitude": 0.12,
+					"anim_frequency": 0.5,
+					"anim_speed": 0.3
+				}
+			}
+		],
+		"camera": {
+			"target": [0.0, 0.5, 0.0],
+			"distance": 6.0
+		}
+	},
+
 	"Crystal Lattice": {
 		"version": 1,
 		"objects": [

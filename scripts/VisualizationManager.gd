@@ -27,13 +27,16 @@ func _scan_children() -> void:
 		select(objects[0])
 
 func is_managed(node: Node) -> bool:
-	return node is PolyMesh or node is PolyParticles or node is InfluenceObject
+	return node is PolyMesh or node is PolyParticles or node is PolyCloth or node is InfluenceObject
 
 func add_mesh() -> Node3D:
 	return _register(PolyMesh.new())
 
 func add_particles() -> Node3D:
 	return _register(PolyParticles.new())
+
+func add_cloth() -> Node3D:
+	return _register(PolyCloth.new())
 
 func add_influence() -> Node3D:
 	var inf := _register(InfluenceObject.new())
@@ -57,6 +60,8 @@ func _type_label(obj: Node) -> String:
 		return "PolyMesh"
 	if obj is PolyParticles:
 		return "PolyParticles"
+	if obj is PolyCloth:
+		return "PolyCloth"
 	if obj is InfluenceObject:
 		return "Influence"
 	return "Object"

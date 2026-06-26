@@ -75,6 +75,17 @@ Mesh-surface emission bakes target vertices into a `FORMAT_RGBF` `ImageTexture`.
 Auto-budget (`auto_budget`, `budget_target_fps`): `_process` samples FPS once
 per second and scales `amount` proportionally to keep near the target FPS.
 
+### PolyCloth
+`MeshInstance3D` rendering a sprawling crumpled-cloth surface — a heavily
+domain-warped subdivided plane (vs PolyMesh's centered icosphere). `_build_surface()`
+bakes a `(resolution+1)²` grid: domain-warped FBM height along Y (`amplitude`,
+`frequency`, `warp`) plus lateral XZ `fold` offsets, emitting unique verts per
+triangle for flat normals. Per-vertex height-noise + fold magnitude are packed
+into UV2 for the shader's FOLD/NOISE color sources. Uses `polycloth.gdshader`;
+no wireframe/lattice. Setters mirror PolyMesh (`rebuild` for geometry,
+`_apply_color_and_polish` / `_update_anim_uniforms` otherwise). Implements
+`set_influences()` — folds dent under influence spheres like the mesh.
+
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
 scroll wheel zooms. Exposes `get_param_schema()` so the panel shows camera
@@ -122,10 +133,22 @@ Panel top-to-bottom: title → object selector → add/remove → preset/save/lo
 → capture/record → status line → hint bar → camera section → object sections.
 
 ### CompositionIO
-Stateless serializer. `serialize(manager, camera)` → Dictionary; `apply(data,
-manager, camera)` → rebuilds scene from Dictionary. File I/O: `save_json` /
-`load_json`. Encoding: colors → `[r,g,b,a]`, Vector3 → `[x,y,z]`, enums →
-int, colormaps → `{"preset": N, "offsets": [], "colors": []}`.
+Stateless serializer. `serialize(manager, camera, scene=null)` → Dictionary;
+`apply(data, manager, camera, scene=null)` → rebuilds scene from Dictionary.
+File I/O: `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`, Vector3 →
+`[x,y,z]`, enums → int, colormaps → `{"preset": N, "offsets": [], "colors": []}`.
+Camera and `scene` (SceneEnvironment) are each serialized by walking their
+`get_param_schema()` via the shared `_schema_to_dict` / `_dict_to_schema`
+helpers. On load, if `scene` is supplied but the composition has no `"scene"`
+block, `scene.reset_defaults()` restores the white room first.
+
+### SceneEnvironment
+`RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
+Main at startup via `bind()`. Exposes `bg_color`, `bloom_enabled`,
+`bloom_intensity` through `get_param_schema()` so they render in the panel
+(under the camera) and serialize under the `"scene"` key. `bg_color` also drives
+`ambient_light_color` (dark background → dark room). Bloom uses additive glow
+with a 0.7 HDR threshold, so particles with `particle_brightness > 1` bloom.
 
 ### UndoHistory
 Thin wrapper around Godot's built-in `UndoRedo`. `record_property(obj, prop,
@@ -149,8 +172,11 @@ Skips `InfluenceObject` (which already draws its own radius sphere).
 and UndoHistory. Full shortcut list in the script header comment.
 
 ### BuiltInPresets
-Const dictionary of four CompositionIO-compatible scenes: Crystal Lattice,
-Lava Flow, Aurora, Void Sphere. Applied by the preset dropdown in the panel.
+Const dictionary of CompositionIO-compatible scenes (Default, Neon Rain, Petal
+Storm, Crumpled Silk, Crystal Lattice, Lava Flow, Aurora, Void Sphere). Applied
+by the preset dropdown in the panel. Neon Rain is the only one that ships a
+`"scene"` block (dark room + bloom) and stacks two PolyParticles layers plus a
+follow-mouse influence. Crumpled Silk is the PolyCloth showcase.
 
 ---
 
@@ -173,6 +199,15 @@ Uniforms set by PolyMesh setters each frame / on property change:
 Similar set — all pushed via `_mat.set_shader_parameter()`. Curl-noise flow
 field is divergence-free; `u_turbulence` scales the curl acceleration.
 Influence fields attract (+) or accelerate particles away (−).
+
+### polycloth.gdshader (spatial)
+PolyCloth's surface shader. Shares the colormap / posterize / contrast /
+brightness / rim / influence uniform conventions with `polymesh_deform`, but:
+animated displacement and influence dents ride along world-up (Y) instead of a
+radial direction (coherent on a plane); color decisions use the baked
+object-space normal varying `v_face_n` (camera-stable), while lighting uses the
+derivative normal. Adds `u_cool_color`/`u_cool_strength`/`u_cool_dir` for the
+warm/cool facet split, and reads baked height-noise + fold magnitude from `UV2`.
 
 ---
 
@@ -216,11 +251,14 @@ entirely by the schema.
       }
     }
   ],
+  "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2 },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-Only parameters present in `get_param_schema()` are serialized. Missing keys
+The `"scene"` block is optional; when absent on load the environment resets to
+the default white room (no bloom). Only parameters present in `get_param_schema()`
+are serialized. Missing keys
 on load keep the object's GDScript defaults. Colormap `preset` values map to
 `GradientColormap.Preset` enum (CUSTOM=0, VIRIDIS=1, PINK_RED_WHITE=2,
 PURPLE_YELLOW=3, GREEN_TEAL=4). Empty `offsets`/`colors` arrays means "use the

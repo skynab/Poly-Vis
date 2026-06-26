@@ -10,11 +10,13 @@ class_name Main
 @onready var camera: Camera3D = $Camera3D
 @onready var panel: ParameterPanel = $UI/ParameterPanel
 @onready var influence: InfluenceController = $InfluenceController
+@onready var world_env: WorldEnvironment = $WorldEnvironment
 
 var capture: CaptureManager
 var undo: UndoHistory
 var gizmo: SelectionGizmo
 var input_mgr: InputManager
+var scene_env: SceneEnvironment
 var _fps_label: Label
 
 func _ready() -> void:
@@ -46,7 +48,12 @@ func _ready() -> void:
 	_fps_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.6))
 	$UI.add_child(_fps_label)
 
-	panel.setup(manager, camera, capture, undo)
+	# Scene environment wrapper — schema-driven bg color + bloom, serialized
+	# alongside the camera so presets can ship a dark room for neon visuals.
+	scene_env = SceneEnvironment.new()
+	scene_env.bind(world_env.environment)
+
+	panel.setup(manager, camera, capture, undo, scene_env)
 	influence.setup(manager, camera)
 	input_mgr.setup(manager, camera, panel, undo)
 
