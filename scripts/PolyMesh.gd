@@ -13,6 +13,9 @@ extends MeshInstance3D
 class_name PolyMesh
 
 enum RenderMode { SOLID, WIREFRAME, SOLID_WIREFRAME }
+## Value driving the colormap lookup. NORMAL uses the object-space radial
+## direction (camera-stable); DISPLACEMENT/NOISE use the deformation field.
+enum ColorSource { WORLD_HEIGHT, DISTANCE, NORMAL, DISPLACEMENT, NOISE }
 
 const DEFORM_SHADER := preload("res://shaders/polymesh_deform.gdshader")
 
@@ -29,6 +32,21 @@ const DEFORM_SHADER := preload("res://shaders/polymesh_deform.gdshader")
 @export var base_color: Color = Color(0.85, 0.2, 0.45): set = set_base_color
 @export_range(0.0, 1.0) var surface_roughness: float = 0.7: set = set_surface_roughness
 @export_range(0.0, 1.0) var surface_metallic: float = 0.0: set = set_surface_metallic
+
+@export_group("Color")
+## Shared colormap (Prompt 3.1). When null, falls back to base_color.
+@export var colormap: GradientColormap: set = set_colormap
+@export var color_source: ColorSource = ColorSource.WORLD_HEIGHT: set = set_color_source
+@export var color_min: float = -1.8: set = set_color_min
+@export var color_max: float = 1.8: set = set_color_max
+@export var posterize: bool = false: set = set_posterize
+@export_range(1.0, 32.0) var posterize_steps: float = 5.0: set = set_posterize_steps
+
+@export_group("Material Polish")
+@export_range(0.0, 2.0) var rim_strength: float = 0.0: set = set_rim_strength
+@export_range(0.5, 8.0) var rim_power: float = 2.5: set = set_rim_power
+@export var rim_color: Color = Color.WHITE: set = set_rim_color
+@export_range(0.0, 1.0) var translucency: float = 0.0: set = set_translucency
 
 @export_group("Wireframe / Lattice")
 @export_range(0.001, 0.1) var edge_radius: float = 0.012: set = set_edge_radius
@@ -77,6 +95,8 @@ func _ensure_children() -> void:
 	if not _surface_mat:
 		_surface_mat = ShaderMaterial.new()
 		_surface_mat.shader = DEFORM_SHADER
+	if colormap == null:
+		set_colormap(GradientColormap.create(GradientColormap.Preset.PINK_RED_WHITE))
 	if not is_instance_valid(_edge_mmi):
 		_edge_mmi = MultiMeshInstance3D.new()
 		_edge_mmi.name = "EdgeLattice"
@@ -162,6 +182,7 @@ func _build_solid_surface() -> void:
 	_surface_mat.set_shader_parameter("u_roughness", surface_roughness)
 	_surface_mat.set_shader_parameter("u_metallic", surface_metallic)
 	_update_anim_uniforms()
+	_apply_color_and_polish()
 	material_override = _surface_mat
 
 func _build_lattice() -> void:
@@ -241,6 +262,22 @@ func _update_anim_uniforms() -> void:
 	_surface_mat.set_shader_parameter("u_anim_frequency", anim_frequency)
 	_surface_mat.set_shader_parameter("u_anim_speed", anim_speed)
 
+func _apply_color_and_polish() -> void:
+	if not _surface_mat:
+		return
+	var tex: Texture2D = colormap.get_texture() if colormap else null
+	_surface_mat.set_shader_parameter("u_use_colormap", tex != null)
+	if tex:
+		_surface_mat.set_shader_parameter("u_colormap", tex)
+	_surface_mat.set_shader_parameter("u_color_source", int(color_source))
+	_surface_mat.set_shader_parameter("u_color_range", Vector2(color_min, color_max))
+	_surface_mat.set_shader_parameter("u_posterize", posterize)
+	_surface_mat.set_shader_parameter("u_posterize_steps", posterize_steps)
+	_surface_mat.set_shader_parameter("u_rim_strength", rim_strength)
+	_surface_mat.set_shader_parameter("u_rim_power", rim_power)
+	_surface_mat.set_shader_parameter("u_rim_color", rim_color)
+	_surface_mat.set_shader_parameter("u_translucency", translucency)
+
 # ---------------------------------------------------------------------------
 # Setters — regenerate or update uniforms as cheaply as possible
 # ---------------------------------------------------------------------------
@@ -315,3 +352,47 @@ func set_anim_frequency(v: float) -> void:
 func set_anim_speed(v: float) -> void:
 	anim_speed = v
 	_update_anim_uniforms()
+
+func set_colormap(v: GradientColormap) -> void:
+	if colormap and colormap.changed.is_connected(_apply_color_and_polish):
+		colormap.changed.disconnect(_apply_color_and_polish)
+	colormap = v
+	if colormap and not colormap.changed.is_connected(_apply_color_and_polish):
+		colormap.changed.connect(_apply_color_and_polish)
+	_apply_color_and_polish()
+
+func set_color_source(v: ColorSource) -> void:
+	color_source = v
+	_apply_color_and_polish()
+
+func set_color_min(v: float) -> void:
+	color_min = v
+	_apply_color_and_polish()
+
+func set_color_max(v: float) -> void:
+	color_max = v
+	_apply_color_and_polish()
+
+func set_posterize(v: bool) -> void:
+	posterize = v
+	_apply_color_and_polish()
+
+func set_posterize_steps(v: float) -> void:
+	posterize_steps = v
+	_apply_color_and_polish()
+
+func set_rim_strength(v: float) -> void:
+	rim_strength = v
+	_apply_color_and_polish()
+
+func set_rim_power(v: float) -> void:
+	rim_power = v
+	_apply_color_and_polish()
+
+func set_rim_color(v: Color) -> void:
+	rim_color = v
+	_apply_color_and_polish()
+
+func set_translucency(v: float) -> void:
+	translucency = v
+	_apply_color_and_polish()
