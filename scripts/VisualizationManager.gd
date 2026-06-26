@@ -74,6 +74,15 @@ func remove_selected() -> void:
 	else:
 		selection_changed.emit(null)
 
+func clear_all() -> void:
+	for obj in objects.duplicate():
+		obj.queue_free()
+	objects.clear()
+	selected = null
+	_spawn_counter = 0
+	objects_changed.emit()
+	selection_changed.emit(null)
+
 func select(obj: Node3D) -> void:
 	selected = obj
 	selection_changed.emit(obj)

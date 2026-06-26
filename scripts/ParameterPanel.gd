@@ -1,6 +1,8 @@
 extends PanelContainer
 ## Dockable side panel exposing all parameters of the selected visualization plus
 ## the camera, with live controls in collapsible sections (Prompt 4.1).
+## Phase 6 adds IO toolbar (presets/save/load/duplicate) and export controls
+## (screenshot and image-sequence recording).
 ##
 ## Controls are generated from each object's get_param_schema(), so every
 ## parameter is covered without hand-wiring. Binding is two-way: control changes
@@ -17,19 +19,32 @@ var PRESET_VALUES := [
 
 var _manager: VisualizationManager
 var _camera: Node
+var _capture: CaptureManager
 var _obj_selector: OptionButton
 var _object_host: VBoxContainer
+var _status_label: Label
+var _rec_button: Button
+var _fps_spin: SpinBox
+var _save_dlg: FileDialog
+var _load_dlg: FileDialog
 var _built := false
 
-func setup(manager: VisualizationManager, camera: Node) -> void:
+func setup(manager: VisualizationManager, camera: Node,
+		capture: CaptureManager = null) -> void:
 	_manager = manager
 	_camera = camera
+	_capture = capture
 	if not _built:
 		_build_base()
 	if not _manager.objects_changed.is_connected(_refresh_object_list):
 		_manager.objects_changed.connect(_refresh_object_list)
 	if not _manager.selection_changed.is_connected(show_object):
 		_manager.selection_changed.connect(show_object)
+	if _capture:
+		if not _capture.screenshot_saved.is_connected(_on_screenshot_saved):
+			_capture.screenshot_saved.connect(_on_screenshot_saved)
+		if not _capture.recording_stopped.is_connected(_on_recording_stopped):
+			_capture.recording_stopped.connect(_on_recording_stopped)
 	_refresh_object_list()
 	show_object(_manager.selected)
 
@@ -37,7 +52,6 @@ func setup(manager: VisualizationManager, camera: Node) -> void:
 func _build_base() -> void:
 	_built = true
 	custom_minimum_size = Vector2(340, 0)
-	# Dock to the right edge, full height.
 	set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
 	offset_left = -340
 
@@ -52,12 +66,13 @@ func _build_base() -> void:
 	root.add_theme_constant_override("separation", 6)
 	margin.add_child(root)
 
+	# Title
 	var title := Label.new()
 	title.text = "Poly-Vis"
 	title.add_theme_font_size_override("font_size", 20)
 	root.add_child(title)
 
-	# Object toolbar.
+	# Object selector
 	var bar := HBoxContainer.new()
 	root.add_child(bar)
 	_obj_selector = OptionButton.new()
@@ -65,15 +80,56 @@ func _build_base() -> void:
 	_obj_selector.item_selected.connect(_on_object_selected)
 	bar.add_child(_obj_selector)
 
+	# Add / Remove toolbar
 	var bar2 := HBoxContainer.new()
 	root.add_child(bar2)
 	_add_button(bar2, "+ Mesh", func(): _manager.add_mesh())
-	_add_button(bar2, "+ Particles", func(): _manager.add_particles())
-	_add_button(bar2, "+ Influence", func(): _manager.add_influence())
+	_add_button(bar2, "+ Pts", func(): _manager.add_particles())
+	_add_button(bar2, "+ Inf", func(): _manager.add_influence())
 	_add_button(bar2, "Remove", func(): _manager.remove_selected())
+
+	# IO toolbar: presets | save | load | duplicate
+	var io_bar := HBoxContainer.new()
+	root.add_child(io_bar)
+	var preset_opt := OptionButton.new()
+	preset_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preset_opt.add_item("Presets…")
+	for pname in BuiltInPresets.PRESETS:
+		preset_opt.add_item(pname)
+	preset_opt.item_selected.connect(_on_preset_selected)
+	io_bar.add_child(preset_opt)
+	_add_button(io_bar, "Save", func(): _open_save())
+	_add_button(io_bar, "Load", func(): _open_load())
+	_add_button(io_bar, "Dup", func(): _duplicate_selected())
+
+	# Export toolbar: screenshot | 2x | record | fps
+	var ex_bar := HBoxContainer.new()
+	root.add_child(ex_bar)
+	_add_button(ex_bar, "Capture", func(): _do_screenshot(1))
+	_add_button(ex_bar, "2×", func(): _do_screenshot(2))
+	_rec_button = Button.new()
+	_rec_button.text = "● Rec"
+	_rec_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rec_button.pressed.connect(_toggle_recording)
+	ex_bar.add_child(_rec_button)
+	_fps_spin = SpinBox.new()
+	_fps_spin.min_value = 1
+	_fps_spin.max_value = 60
+	_fps_spin.value = 24
+	_fps_spin.suffix = "fps"
+	_fps_spin.custom_minimum_size = Vector2(72, 0)
+	ex_bar.add_child(_fps_spin)
+
+	# Status label (shows save/load/capture feedback)
+	_status_label = Label.new()
+	_status_label.add_theme_font_size_override("font_size", 10)
+	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status_label.custom_minimum_size = Vector2(0, 14)
+	root.add_child(_status_label)
 
 	root.add_child(HSeparator.new())
 
+	# Scrollable parameter area
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -84,7 +140,6 @@ func _build_base() -> void:
 	content.add_theme_constant_override("separation", 4)
 	scroll.add_child(content)
 
-	# Camera section is persistent; object sections live in _object_host.
 	if _camera and _camera.has_method("get_param_schema"):
 		_populate(content, _camera, _camera.get_param_schema())
 	_object_host = VBoxContainer.new()
@@ -98,6 +153,8 @@ func _add_button(parent: Node, text: String, cb: Callable) -> void:
 	b.pressed.connect(cb)
 	parent.add_child(b)
 
+# ---------------------------------------------------------------------------
+# Object list
 # ---------------------------------------------------------------------------
 func _refresh_object_list() -> void:
 	if _obj_selector == null:
@@ -120,10 +177,107 @@ func show_object(obj: Node3D) -> void:
 		c.queue_free()
 	if obj and obj.has_method("get_param_schema"):
 		_populate(_object_host, obj, obj.get_param_schema())
-	# Keep the selector in sync with programmatic selection.
 	var idx := _manager.objects.find(obj)
 	if idx >= 0 and _obj_selector and _obj_selector.selected != idx:
 		_obj_selector.select(idx)
+
+# ---------------------------------------------------------------------------
+# IO actions
+# ---------------------------------------------------------------------------
+func _on_preset_selected(idx: int) -> void:
+	if idx == 0:
+		return
+	var names := BuiltInPresets.PRESETS.keys()
+	var data: Dictionary = BuiltInPresets.PRESETS[names[idx - 1]]
+	CompositionIO.apply(data, _manager, _camera)
+	_show_status("Loaded preset: " + names[idx - 1])
+
+func _open_save() -> void:
+	_ensure_dialogs()
+	_save_dlg.popup_centered()
+
+func _open_load() -> void:
+	_ensure_dialogs()
+	_load_dlg.popup_centered()
+
+func _do_save(path: String) -> void:
+	var data := CompositionIO.serialize(_manager, _camera)
+	var err := CompositionIO.save_json(path, data)
+	_show_status("Saved: " + path.get_file() if err == OK else "Save failed (%d)" % err)
+
+func _do_load(path: String) -> void:
+	var data := CompositionIO.load_json(path)
+	if data.is_empty():
+		_show_status("Load failed: empty or invalid file")
+		return
+	CompositionIO.apply(data, _manager, _camera)
+	_show_status("Loaded: " + path.get_file())
+
+func _duplicate_selected() -> void:
+	if _manager.selected == null:
+		return
+	var type := _manager._type_label(_manager.selected)
+	var data := CompositionIO.serialize_object(_manager.selected, type)
+	var obj := CompositionIO.create_object(data, _manager)
+	if obj:
+		obj.position = _manager.selected.position + Vector3(3.5, 0.0, 0.0)
+	_show_status("Duplicated " + type)
+
+func _ensure_dialogs() -> void:
+	if _save_dlg:
+		return
+	_save_dlg = FileDialog.new()
+	_save_dlg.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	_save_dlg.access = FileDialog.ACCESS_FILESYSTEM
+	_save_dlg.filters = PackedStringArray(["*.json ; JSON Composition"])
+	_save_dlg.size = Vector2i(640, 460)
+	_save_dlg.title = "Save Composition"
+	_save_dlg.file_selected.connect(_do_save)
+	get_tree().root.add_child(_save_dlg)
+
+	_load_dlg = FileDialog.new()
+	_load_dlg.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	_load_dlg.access = FileDialog.ACCESS_FILESYSTEM
+	_load_dlg.filters = PackedStringArray(["*.json ; JSON Composition"])
+	_load_dlg.size = Vector2i(640, 460)
+	_load_dlg.title = "Load Composition"
+	_load_dlg.file_selected.connect(_do_load)
+	get_tree().root.add_child(_load_dlg)
+
+# ---------------------------------------------------------------------------
+# Export actions
+# ---------------------------------------------------------------------------
+func _do_screenshot(scale: int) -> void:
+	if _capture == null:
+		_show_status("No capture manager connected")
+		return
+	_capture.capture(scale)
+
+func _toggle_recording() -> void:
+	if _capture == null:
+		_show_status("No capture manager connected")
+		return
+	if _capture.is_recording():
+		_capture.stop_recording()
+		_rec_button.text = "● Rec"
+	else:
+		var dir := _capture.start_recording(int(_fps_spin.value))
+		_rec_button.text = "■ Stop"
+		_show_status("Recording → " + dir.get_file())
+
+func _on_screenshot_saved(path: String) -> void:
+	_show_status("Saved: " + path.get_file())
+
+func _on_recording_stopped(frames: int, dir: String) -> void:
+	_show_status("%d frames → %s" % [frames, dir.get_file()])
+
+func _show_status(msg: String) -> void:
+	if not _status_label:
+		return
+	_status_label.text = msg
+	get_tree().create_timer(5.0).timeout.connect(func():
+		if _status_label and _status_label.text == msg:
+			_status_label.text = "")
 
 # ---------------------------------------------------------------------------
 # Schema -> controls
