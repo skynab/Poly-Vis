@@ -396,3 +396,46 @@ func set_rim_color(v: Color) -> void:
 func set_translucency(v: float) -> void:
 	translucency = v
 	_apply_color_and_polish()
+
+## Schema consumed by the ParameterPanel (Prompt 4.1).
+func get_param_schema() -> Array:
+	return [
+		{"title": "Geometry", "props": [
+			{"name": "subdivisions", "type": "int", "min": 0, "max": 6, "step": 1},
+			{"name": "radius", "type": "float", "min": 0.1, "max": 10.0, "step": 0.05},
+			{"name": "noise_amplitude", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},
+			{"name": "noise_frequency", "type": "float", "min": 0.05, "max": 5.0, "step": 0.05},
+			{"name": "seed", "type": "int", "min": 0, "max": 9999, "step": 1},
+		]},
+		{"title": "Rendering", "props": [
+			{"name": "render_mode", "type": "enum", "options": ["Solid", "Wireframe", "Solid + Wireframe"]},
+			{"name": "base_color", "type": "color"},
+			{"name": "surface_roughness", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+			{"name": "surface_metallic", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+		]},
+		{"title": "Color", "props": [
+			{"name": "colormap", "type": "colormap_preset"},
+			{"name": "color_source", "type": "enum", "options": ["World Height", "Distance", "Normal", "Displacement", "Noise"]},
+			{"name": "color_min", "type": "float", "min": -10.0, "max": 10.0, "step": 0.05},
+			{"name": "color_max", "type": "float", "min": -10.0, "max": 10.0, "step": 0.05},
+			{"name": "posterize", "type": "bool"},
+			{"name": "posterize_steps", "type": "float", "min": 1.0, "max": 32.0, "step": 1.0},
+		]},
+		{"title": "Material Polish", "props": [
+			{"name": "rim_strength", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},
+			{"name": "rim_power", "type": "float", "min": 0.5, "max": 8.0, "step": 0.1},
+			{"name": "rim_color", "type": "color"},
+			{"name": "translucency", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+		]},
+		{"title": "Wireframe / Lattice", "props": [
+			{"name": "edge_radius", "type": "float", "min": 0.001, "max": 0.1, "step": 0.001},
+			{"name": "node_radius", "type": "float", "min": 0.001, "max": 0.2, "step": 0.001},
+			{"name": "lattice_color", "type": "color"},
+		]},
+		{"title": "Animation", "props": [
+			{"name": "animate", "type": "bool"},
+			{"name": "anim_amplitude", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},
+			{"name": "anim_frequency", "type": "float", "min": 0.05, "max": 5.0, "step": 0.05},
+			{"name": "anim_speed", "type": "float", "min": 0.0, "max": 5.0, "step": 0.05},
+		]},
+	]

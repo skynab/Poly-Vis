@@ -8,13 +8,35 @@ extends Camera3D
 ##   - Mouse wheel            : zoom (dolly toward/away from target)
 class_name OrbitCamera
 
-@export var target: Vector3 = Vector3.ZERO
-@export_range(0.5, 100.0) var distance: float = 6.0
+@export var target: Vector3 = Vector3.ZERO: set = set_target
+@export_range(0.5, 100.0) var distance: float = 6.0: set = set_distance
 @export_range(0.01, 5.0) var orbit_speed: float = 0.01
 @export_range(0.001, 1.0) var pan_speed: float = 0.005
 @export_range(1.01, 2.0) var zoom_step: float = 1.1
 @export_range(0.5, 50.0) var min_distance: float = 1.0
 @export_range(1.0, 500.0) var max_distance: float = 100.0
+
+func set_target(v: Vector3) -> void:
+	target = v
+	if is_inside_tree():
+		_update_transform()
+
+func set_distance(v: float) -> void:
+	distance = v
+	if is_inside_tree():
+		_update_transform()
+
+## Schema consumed by the ParameterPanel (Prompt 4.1).
+func get_param_schema() -> Array:
+	return [{
+		"title": "Camera",
+		"props": [
+			{"name": "target", "type": "vector3"},
+			{"name": "distance", "type": "float", "min": 0.5, "max": 100.0, "step": 0.1},
+			{"name": "orbit_speed", "type": "float", "min": 0.01, "max": 5.0, "step": 0.01},
+			{"name": "pan_speed", "type": "float", "min": 0.001, "max": 1.0, "step": 0.001},
+		]
+	}]
 
 # Spherical coordinates (radians) around the target.
 var _yaw: float = 0.6

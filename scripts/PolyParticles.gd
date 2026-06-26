@@ -238,3 +238,34 @@ func set_color_min(v: float) -> void:
 func set_color_max(v: float) -> void:
 	color_max = v
 	_set_param("u_color_range", Vector2(color_min, color_max))
+
+## Schema consumed by the ParameterPanel (Prompt 4.1).
+func get_param_schema() -> Array:
+	return [
+		{"title": "Emission", "props": [
+			{"name": "count", "type": "int", "min": 1, "max": 100000, "step": 100},
+			{"name": "particle_lifetime", "type": "float", "min": 0.1, "max": 30.0, "step": 0.1},
+			{"name": "emitter_shape", "type": "enum", "options": ["Point", "Sphere", "Box", "Mesh Surface"]},
+			{"name": "emitter_extents", "type": "vector3"},
+		]},
+		{"title": "Initial Motion", "props": [
+			{"name": "direction", "type": "vector3"},
+			{"name": "initial_speed", "type": "float", "min": 0.0, "max": 20.0, "step": 0.1},
+			{"name": "spread", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+			{"name": "gravity", "type": "vector3"},
+		]},
+		{"title": "Flow Field", "props": [
+			{"name": "flow_scale", "type": "float", "min": 0.05, "max": 4.0, "step": 0.05},
+			{"name": "flow_speed", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
+			{"name": "turbulence", "type": "float", "min": 0.0, "max": 10.0, "step": 0.1},
+			{"name": "drag", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
+		]},
+		{"title": "Color", "props": [
+			{"name": "colormap", "type": "colormap_preset"},
+			{"name": "color_source", "type": "enum", "options": ["Height", "Distance", "Age", "Velocity", "Noise"]},
+			{"name": "color_min", "type": "float", "min": -10.0, "max": 10.0, "step": 0.05},
+			{"name": "color_max", "type": "float", "min": -10.0, "max": 10.0, "step": 0.05},
+			{"name": "color_a", "type": "color"},
+			{"name": "color_b", "type": "color"},
+		]},
+	]

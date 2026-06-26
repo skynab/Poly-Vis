@@ -1,10 +1,12 @@
 extends Node3D
 ## Root of the Poly-Vis application.
 ##
-## Phase 0 scaffold: holds the camera rig, lighting, and environment.
-## Later phases will add the visualization manager, parameter UI, and
-## the proximity interaction system here.
+## Wires the visualization manager, camera, and parameter panel together.
 class_name Main
 
+@onready var manager: VisualizationManager = $VisualizationManager
+@onready var camera: Node = $Camera3D
+@onready var panel: ParameterPanel = $UI/ParameterPanel
+
 func _ready() -> void:
-	print("Poly-Vis ready — Phase 0 scaffold.")
+	panel.setup(manager, camera)

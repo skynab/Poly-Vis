@@ -1,8 +1,10 @@
-[gd_scene load_steps=5 format=3 uid="uid://bpolyvismain01"]
+[gd_scene load_steps=7 format=3 uid="uid://bpolyvismain01"]
 
 [ext_resource type="Script" path="res://scripts/Main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/OrbitCamera.gd" id="2_cam"]
 [ext_resource type="Script" path="res://scripts/PolyMesh.gd" id="3_poly"]
+[ext_resource type="Script" path="res://scripts/VisualizationManager.gd" id="4_mgr"]
+[ext_resource type="Script" path="res://scripts/ParameterPanel.gd" id="5_panel"]
 
 [sub_resource type="Environment" id="Environment_white"]
 background_mode=1
@@ -37,10 +39,23 @@ transform=Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 6)
 script=ExtResource("2_cam")
 distance=6.0
 
-[node name="PolyMesh" type="MeshInstance3D" parent="."]
+[node name="VisualizationManager" type="Node3D" parent="."]
+script=ExtResource("4_mgr")
+
+[node name="PolyMesh" type="MeshInstance3D" parent="VisualizationManager"]
 script=ExtResource("3_poly")
 subdivisions=3
 radius=1.5
 noise_amplitude=0.35
 noise_frequency=0.8
 base_color=Color(0.85, 0.2, 0.45, 1)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="ParameterPanel" type="PanelContainer" parent="UI"]
+anchors_preset=15
+anchor_right=1.0
+anchor_bottom=1.0
+grow_horizontal=2
+grow_vertical=2
+script=ExtResource("5_panel")
