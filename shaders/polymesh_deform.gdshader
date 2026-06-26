@@ -14,7 +14,7 @@ uniform vec3 u_base_color : source_color = vec3(0.85, 0.2, 0.45);
 uniform float u_roughness : hint_range(0.0, 1.0) = 0.7;
 uniform float u_metallic : hint_range(0.0, 1.0) = 0.0;
 
-// --- colormap (Prompt 3.1) -------------------------------------------------
+// --- colormap (Prompt 3.1 / 8.3) -------------------------------------------
 uniform sampler2D u_colormap : source_color, filter_linear;
 uniform bool u_use_colormap = false;
 // 0 world-height, 1 distance-from-center, 2 normal, 3 displacement, 4 noise
@@ -22,6 +22,11 @@ uniform int u_color_source = 1;
 uniform vec2 u_color_range = vec2(-1.8, 1.8);
 uniform bool u_posterize = false;
 uniform float u_posterize_steps : hint_range(1.0, 32.0) = 5.0;
+// Contrast: gamma-style remap applied before the colormap lookup.
+//   t = pow(t, 1/contrast) — values <1 expand midtones, >1 compress them.
+uniform float u_contrast : hint_range(0.0, 2.0) = 1.0;
+// Brightness: scalar applied to the final albedo after colormap + influence mix.
+uniform float u_brightness : hint_range(0.0, 4.0) = 1.0;
 
 // --- material polish (Prompt 3.2) ------------------------------------------
 uniform float u_rim_strength : hint_range(0.0, 2.0) = 0.0;
@@ -135,6 +140,8 @@ float color_t() {
 		value = v_disp;                         // raw noise
 	}
 	float t = clamp((value - u_color_range.x) / max(u_color_range.y - u_color_range.x, 0.0001), 0.0, 1.0);
+	// Contrast: power remap before the colormap lookup.  1.0 = identity.
+	t = pow(t, 1.0 / max(u_contrast, 0.0001));
 	if (u_posterize) {
 		t = floor(t * u_posterize_steps) / max(u_posterize_steps - 1.0, 1.0);
 	}
@@ -148,6 +155,7 @@ void fragment() {
 
 	ALBEDO = u_use_colormap ? texture(u_colormap, vec2(color_t(), 0.5)).rgb : u_base_color;
 	ALBEDO = mix(ALBEDO, v_infl_color, v_infl_amt);
+	ALBEDO *= u_brightness;
 	ROUGHNESS = u_roughness;
 	METALLIC = u_metallic;
 

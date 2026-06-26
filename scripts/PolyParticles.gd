@@ -12,6 +12,9 @@ class_name PolyParticles
 enum EmitterShape { POINT, SPHERE, BOX, MESH_SURFACE }
 ## Value driving the colormap lookup (points have no normal, so 2 == age).
 enum ColorSource { HEIGHT, DISTANCE, AGE, VELOCITY, NOISE }
+## Shape of each particle's draw mesh. All shapes are built at unit scale;
+## particle_size in the shader controls actual world size.
+enum ParticleShape { SPHERE, TETRA, SHARD, DISC, SPARK }
 
 const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 
@@ -20,6 +23,12 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 @export_range(0.1, 30.0) var particle_lifetime: float = 6.0: set = set_particle_lifetime
 @export var emitter_shape: EmitterShape = EmitterShape.SPHERE: set = set_emitter_shape
 @export var emitter_extents: Vector3 = Vector3(1.5, 1.5, 1.5): set = set_emitter_extents
+@export var particle_shape: ParticleShape = ParticleShape.SPHERE: set = set_particle_shape
+@export_range(0.01, 0.5) var particle_size: float = 0.04: set = set_particle_size
+## Shrink each particle from full size to zero over its lifetime.
+@export var particle_size_curve: bool = false: set = set_particle_size_curve
+## Randomised spin speed (radians/lifetime); negative values spin the other way.
+@export_range(0.0, 10.0) var particle_rotation_speed: float = 0.0: set = set_particle_rotation_speed
 ## When emitter_shape is MESH_SURFACE, vertices of this MeshInstance3D are used.
 @export var emission_source: NodePath: set = set_emission_source
 
@@ -49,6 +58,9 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 @export var color_max: float = 3.0: set = set_color_max
 @export var color_a: Color = Color(0.1, 0.8, 0.7): set = set_color_a
 @export var color_b: Color = Color(0.95, 0.95, 0.2): set = set_color_b
+## Scalar multiplied against final particle color.  Use to brighten particles
+## relative to the background mesh without touching the shared colormap.
+@export_range(0.0, 4.0) var particle_brightness: float = 1.0: set = set_particle_brightness
 
 var _mat: ShaderMaterial
 var _budget_cooldown: float = 0.0
@@ -92,34 +104,99 @@ func _ensure_draw_pass() -> void:
 	if draw_pass_1 == null:
 		draw_pass_1 = _make_particle_mesh()
 
-## Small flat-shaded tetrahedron so each particle reads as a low-poly chip.
-func _make_particle_mesh() -> ArrayMesh:
-	var s := 0.04
-	var v := [
-		Vector3(1, 1, 1) * s, Vector3(1, -1, -1) * s,
-		Vector3(-1, 1, -1) * s, Vector3(-1, -1, 1) * s,
-	]
-	var faces := [[0, 1, 2], [0, 2, 3], [0, 3, 1], [1, 3, 2]]
+## Build the draw mesh for the current particle_shape.
+## All meshes are at unit scale; u_particle_size in the shader controls world size.
+func _make_particle_mesh() -> Mesh:
+	match particle_shape:
+		ParticleShape.TETRA: return _build_tetra()
+		ParticleShape.SHARD: return _build_shard()
+		ParticleShape.DISC:  return _build_disc()
+		ParticleShape.SPARK: return _build_spark()
+		_:                   return _build_sphere()
+
+## Shared material: unlit + double-sided so tiny geometry never shows shading artefacts.
+func _particle_mat() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return mat
+
+## Generic builder: flat list of (verts, face-index-triples) → ArrayMesh.
+func _tris_to_mesh(verts: Array, faces: Array) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for f in faces:
-		st.add_vertex(v[f[0]])
-		st.add_vertex(v[f[1]])
-		st.add_vertex(v[f[2]])
-	st.generate_normals()
-	var mesh := st.commit()
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # tiny tris; winding-agnostic
-	mat.roughness = 0.6
-	mesh.surface_set_material(0, mat)
-	return mesh
+		st.add_vertex(verts[f[0]])
+		st.add_vertex(verts[f[1]])
+		st.add_vertex(verts[f[2]])
+	var m := st.commit()
+	m.surface_set_material(0, _particle_mat())
+	return m
+
+## Low-poly sphere — 8 radial segments × 5 rings gives a visible faceted look
+## that still reads as round at small particle sizes.
+func _build_sphere() -> Mesh:
+	var sm := SphereMesh.new()
+	sm.radius = 1.0
+	sm.height = 2.0
+	sm.radial_segments = 8
+	sm.rings = 5
+	sm.material = _particle_mat()
+	return sm
+
+## Regular tetrahedron — classic low-poly chip.
+func _build_tetra() -> ArrayMesh:
+	var v := [
+		Vector3( 1,  1,  1), Vector3( 1, -1, -1),
+		Vector3(-1,  1, -1), Vector3(-1, -1,  1),
+	]
+	return _tris_to_mesh(v, [[0,1,2],[0,2,3],[0,3,1],[1,3,2]])
+
+## Elongated diamond shard, flat in XY, 3:1 aspect ratio.
+func _build_shard() -> ArrayMesh:
+	var v := [
+		Vector3( 0.00,  1.5, 0),   # top tip
+		Vector3( 0.28,  0.1, 0),   # right shoulder
+		Vector3( 0.00, -0.7, 0),   # bottom tip
+		Vector3(-0.28,  0.1, 0),   # left shoulder
+	]
+	return _tris_to_mesh(v, [[0,1,2],[0,2,3]])
+
+## Flat regular hexagon, good for disc / petal aesthetics.
+func _build_disc() -> ArrayMesh:
+	var verts: Array = [Vector3.ZERO]
+	for i in 6:
+		var a := i * TAU / 6.0
+		verts.append(Vector3(cos(a), sin(a), 0.0))
+	var faces: Array = []
+	for i in 6:
+		faces.append([0, i + 1, ((i + 1) % 6) + 1])
+	return _tris_to_mesh(verts, faces)
+
+## Four-pointed star / cross — 8 triangles between alternating inner/outer ring.
+func _build_spark() -> ArrayMesh:
+	const OUTER := 1.0
+	const INNER := 0.32
+	var verts: Array = [Vector3.ZERO]
+	for i in 8:
+		var a := i * TAU / 8.0
+		var r := OUTER if i % 2 == 0 else INNER
+		verts.append(Vector3(cos(a) * r, sin(a) * r, 0.0))
+	var faces: Array = []
+	for i in 8:
+		faces.append([0, i + 1, ((i + 1) % 8) + 1])
+	return _tris_to_mesh(verts, faces)
 
 func _apply_all() -> void:
 	amount = max(count, 1)
 	lifetime = particle_lifetime
+	draw_pass_1 = _make_particle_mesh()
 	if not _mat:
 		return
+	_mat.set_shader_parameter("u_particle_size", particle_size)
+	_mat.set_shader_parameter("u_size_curve", particle_size_curve)
+	_mat.set_shader_parameter("u_rotation_speed", particle_rotation_speed)
 	_mat.set_shader_parameter("u_emitter_shape", int(emitter_shape))
 	_mat.set_shader_parameter("u_emitter_extents", emitter_extents)
 	_mat.set_shader_parameter("u_direction", direction)
@@ -145,6 +222,7 @@ func _apply_colormap() -> void:
 		_mat.set_shader_parameter("u_colormap", tex)
 	_mat.set_shader_parameter("u_color_source", int(color_source))
 	_mat.set_shader_parameter("u_color_range", Vector2(color_min, color_max))
+	_mat.set_shader_parameter("u_particle_brightness", particle_brightness)
 
 ## Bake target mesh vertices into a 1-row RGBF texture for mesh-surface emission.
 func _bake_emission_points() -> void:
@@ -236,6 +314,22 @@ func set_flow_seed(v: float) -> void:
 	flow_seed = v
 	_set_param("u_seed", v)
 
+func set_particle_shape(v: ParticleShape) -> void:
+	particle_shape = v
+	draw_pass_1 = _make_particle_mesh()
+
+func set_particle_size(v: float) -> void:
+	particle_size = v
+	_set_param("u_particle_size", v)
+
+func set_particle_size_curve(v: bool) -> void:
+	particle_size_curve = v
+	_set_param("u_size_curve", v)
+
+func set_particle_rotation_speed(v: float) -> void:
+	particle_rotation_speed = v
+	_set_param("u_rotation_speed", v)
+
 func set_auto_budget(v: bool) -> void:
 	auto_budget = v
 	if not v:
@@ -250,6 +344,10 @@ func set_color_a(v: Color) -> void:
 func set_color_b(v: Color) -> void:
 	color_b = v
 	_set_param("u_color_b", v)
+
+func set_particle_brightness(v: float) -> void:
+	particle_brightness = v
+	_set_param("u_particle_brightness", v)
 
 func set_colormap(v: GradientColormap) -> void:
 	if colormap and colormap.changed.is_connected(_apply_colormap):
@@ -273,11 +371,11 @@ func set_color_max(v: float) -> void:
 	_set_param("u_color_range", Vector2(color_min, color_max))
 
 ## Push influence-field data into the particle shader (Prompt 5.2).
-func set_influences(count: int, positions: PackedVector3Array, radii: PackedFloat32Array,
+func set_influences(infl_count: int, positions: PackedVector3Array, radii: PackedFloat32Array,
 		strengths: PackedFloat32Array, colors: PackedVector3Array) -> void:
 	if not _mat:
 		return
-	_mat.set_shader_parameter("u_influence_count", count)
+	_mat.set_shader_parameter("u_influence_count", infl_count)
 	_mat.set_shader_parameter("u_influence_pos", positions)
 	_mat.set_shader_parameter("u_influence_radius", radii)
 	_mat.set_shader_parameter("u_influence_strength", strengths)
@@ -291,6 +389,10 @@ func get_param_schema() -> Array:
 			{"name": "particle_lifetime", "type": "float", "min": 0.1, "max": 30.0, "step": 0.1},
 			{"name": "emitter_shape", "type": "enum", "options": ["Point", "Sphere", "Box", "Mesh Surface"]},
 			{"name": "emitter_extents", "type": "vector3"},
+			{"name": "particle_shape", "type": "enum", "options": ["Sphere", "Tetra", "Shard", "Disc", "Spark"]},
+			{"name": "particle_size", "type": "float", "min": 0.01, "max": 0.5, "step": 0.005},
+			{"name": "particle_size_curve", "type": "bool"},
+			{"name": "particle_rotation_speed", "type": "float", "min": 0.0, "max": 10.0, "step": 0.1},
 		]},
 		{"title": "Initial Motion", "props": [
 			{"name": "direction", "type": "vector3"},
@@ -315,5 +417,6 @@ func get_param_schema() -> Array:
 			{"name": "color_max", "type": "float", "min": -10.0, "max": 10.0, "step": 0.05},
 			{"name": "color_a", "type": "color"},
 			{"name": "color_b", "type": "color"},
+			{"name": "particle_brightness", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
 		]},
 	]

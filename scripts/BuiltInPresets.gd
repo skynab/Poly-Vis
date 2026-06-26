@@ -9,6 +9,53 @@
 class_name BuiltInPresets
 
 const PRESETS: Dictionary = {
+	"Default": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyMesh",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"subdivisions": 3,
+					"radius": 1.5,
+					"noise_amplitude": 0.35,
+					"noise_frequency": 0.8,
+					"noise_seed": 0,
+					"render_mode": 0,
+					"base_color": [0.85, 0.2, 0.45, 1.0],
+					"surface_roughness": 0.7,
+					"surface_metallic": 0.0,
+					"color_source": 0,
+					"color_min": -1.8,
+					"color_max": 1.8,
+					"posterize": false,
+					"posterize_steps": 5,
+					"contrast": 1.0,
+					"brightness": 1.0,
+					"rim_strength": 0.0,
+					"rim_power": 2.5,
+					"rim_color": [1.0, 1.0, 1.0, 1.0],
+					"translucency": 0.0,
+					"edge_radius": 0.012,
+					"node_radius": 0.03,
+					"edge_color": [0.75, 0.76, 0.8, 1.0],
+					"node_color": [0.92, 0.96, 1.0, 1.0],
+					"node_glow": 0.8,
+					"lattice_opacity": 1.0,
+					"edge_facets": 4,
+					"animate": false,
+					"anim_amplitude": 0.25,
+					"anim_frequency": 1.2,
+					"anim_speed": 0.6
+				}
+			}
+		],
+		"camera": {
+			"target": [0.0, 0.0, 0.0],
+			"distance": 6.0
+		}
+	},
+
 	"Crystal Lattice": {
 		"version": 1,
 		"objects": [
@@ -20,7 +67,7 @@ const PRESETS: Dictionary = {
 					"radius": 1.5,
 					"noise_amplitude": 0.28,
 					"noise_frequency": 1.4,
-					"seed": 42,
+					"noise_seed": 42,
 					"render_mode": 2,
 					"base_color": [0.2, 0.5, 0.9, 1.0],
 					"surface_roughness": 0.12,
@@ -66,7 +113,7 @@ const PRESETS: Dictionary = {
 					"radius": 1.5,
 					"noise_amplitude": 0.5,
 					"noise_frequency": 0.8,
-					"seed": 7,
+					"noise_seed": 7,
 					"render_mode": 0,
 					"base_color": [0.9, 0.15, 0.02, 1.0],
 					"surface_roughness": 0.75,
@@ -172,7 +219,7 @@ const PRESETS: Dictionary = {
 					"radius": 1.8,
 					"noise_amplitude": 0.22,
 					"noise_frequency": 2.1,
-					"seed": 99,
+					"noise_seed": 99,
 					"render_mode": 0,
 					"base_color": [0.04, 0.0, 0.09, 1.0],
 					"surface_roughness": 0.28,

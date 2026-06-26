@@ -25,7 +25,7 @@ const DEFORM_SHADER := preload("res://shaders/polymesh_deform.gdshader")
 @export_range(0.1, 10.0) var radius: float = 1.5: set = set_radius
 @export_range(0.0, 2.0) var noise_amplitude: float = 0.35: set = set_noise_amplitude
 @export_range(0.05, 5.0) var noise_frequency: float = 0.8: set = set_noise_frequency
-@export var seed: int = 0: set = set_seed
+@export var noise_seed: int = 0: set = set_noise_seed
 
 @export_group("Rendering")
 @export var render_mode: RenderMode = RenderMode.SOLID: set = set_render_mode
@@ -41,6 +41,10 @@ const DEFORM_SHADER := preload("res://shaders/polymesh_deform.gdshader")
 @export var color_max: float = 1.8: set = set_color_max
 @export var posterize: bool = false: set = set_posterize
 @export_range(1.0, 32.0) var posterize_steps: float = 5.0: set = set_posterize_steps
+## Gamma-style remap applied to the colormap lookup coordinate.  1.0 = identity.
+@export_range(0.0, 2.0) var contrast: float = 1.0: set = set_contrast
+## Scalar multiplied against the final albedo.  >1 punches through without touching the colormap.
+@export_range(0.0, 4.0) var brightness: float = 1.0: set = set_brightness
 
 @export_group("Material Polish")
 @export_range(0.0, 2.0) var rim_strength: float = 0.0: set = set_rim_strength
@@ -181,7 +185,7 @@ func _midpoint(i: int, j: int, verts: Array[Vector3], cache: Dictionary) -> int:
 func _displace_vertices() -> void:
 	var noise := FastNoiseLite.new()
 	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	noise.seed = seed
+	noise.seed = noise_seed
 	noise.frequency = noise_frequency
 	_displaced = PackedVector3Array()
 	_displaced.resize(_unit_verts.size())
@@ -264,10 +268,10 @@ func _build_lattice() -> void:
 func _wire_push(pos: Vector3) -> Vector3:
 	if render_mode != RenderMode.SOLID_WIREFRAME:
 		return pos
-	var len := pos.length()
-	if len < 0.0001:
+	var plen := pos.length()
+	if plen < 0.0001:
 		return pos
-	return pos + (pos / len) * (edge_radius * 1.5)
+	return pos + (pos / plen) * (edge_radius * 1.5)
 
 ## Update material colors, transparency, and emission without rebuilding geometry.
 func _apply_lattice_materials() -> void:
@@ -291,8 +295,8 @@ func _edge_transform(a: Vector3, b: Vector3) -> Transform3D:
 	var up := Vector3.UP if absf(y.dot(Vector3.UP)) < 0.99 else Vector3.RIGHT
 	var x := up.cross(y).normalized()
 	var z := x.cross(y)
-	var basis := Basis(x * edge_radius, y * length, z * edge_radius)
-	return Transform3D(basis, (a + b) * 0.5)
+	var edge_basis := Basis(x * edge_radius, y * length, z * edge_radius)
+	return Transform3D(edge_basis, (a + b) * 0.5)
 
 func _apply_render_mode() -> void:
 	var show_solid := render_mode != RenderMode.WIREFRAME
@@ -322,6 +326,8 @@ func _apply_color_and_polish() -> void:
 		_surface_mat.set_shader_parameter("u_colormap", tex)
 	_surface_mat.set_shader_parameter("u_color_source", int(color_source))
 	_surface_mat.set_shader_parameter("u_color_range", Vector2(color_min, color_max))
+	_surface_mat.set_shader_parameter("u_contrast", contrast)
+	_surface_mat.set_shader_parameter("u_brightness", brightness)
 	_surface_mat.set_shader_parameter("u_posterize", posterize)
 	_surface_mat.set_shader_parameter("u_posterize_steps", posterize_steps)
 	_surface_mat.set_shader_parameter("u_rim_strength", rim_strength)
@@ -348,8 +354,8 @@ func set_noise_frequency(v: float) -> void:
 	noise_frequency = v
 	rebuild()
 
-func set_seed(v: int) -> void:
-	seed = v
+func set_noise_seed(v: int) -> void:
+	noise_seed = v
 	rebuild()
 
 func set_render_mode(v: RenderMode) -> void:
@@ -478,6 +484,14 @@ func set_posterize_steps(v: float) -> void:
 	posterize_steps = v
 	_apply_color_and_polish()
 
+func set_contrast(v: float) -> void:
+	contrast = v
+	_apply_color_and_polish()
+
+func set_brightness(v: float) -> void:
+	brightness = v
+	_apply_color_and_polish()
+
 func set_rim_strength(v: float) -> void:
 	rim_strength = v
 	_apply_color_and_polish()
@@ -514,7 +528,7 @@ func get_param_schema() -> Array:
 			{"name": "radius", "type": "float", "min": 0.1, "max": 10.0, "step": 0.05},
 			{"name": "noise_amplitude", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},
 			{"name": "noise_frequency", "type": "float", "min": 0.05, "max": 5.0, "step": 0.05},
-			{"name": "seed", "type": "int", "min": 0, "max": 9999, "step": 1},
+			{"name": "noise_seed", "type": "int", "min": 0, "max": 9999, "step": 1},
 		]},
 		{"title": "Rendering", "props": [
 			{"name": "render_mode", "type": "enum", "options": ["Solid", "Wireframe", "Solid + Wireframe"]},
@@ -529,6 +543,8 @@ func get_param_schema() -> Array:
 			{"name": "color_max", "type": "float", "min": -10.0, "max": 10.0, "step": 0.05},
 			{"name": "posterize", "type": "bool"},
 			{"name": "posterize_steps", "type": "float", "min": 1.0, "max": 32.0, "step": 1.0},
+			{"name": "contrast", "type": "float", "min": 0.0, "max": 2.0, "step": 0.05},
+			{"name": "brightness", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
 		]},
 		{"title": "Material Polish", "props": [
 			{"name": "rim_strength", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},

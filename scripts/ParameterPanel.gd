@@ -267,11 +267,11 @@ func _ensure_dialogs() -> void:
 # ---------------------------------------------------------------------------
 # Export actions
 # ---------------------------------------------------------------------------
-func _do_screenshot(scale: int) -> void:
+func _do_screenshot(capture_scale: int) -> void:
 	if _capture == null:
 		_show_status("No capture manager connected")
 		return
-	_capture.capture(scale)
+	_capture.capture(capture_scale)
 
 func _toggle_recording() -> void:
 	if _capture == null:
@@ -381,7 +381,7 @@ func _add_bool(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	cb.button_pressed = obj.get(pname)
 	row.add_child(cb)
 	cb.toggled.connect(func(p: bool):
-		var old := obj.get(pname)
+		var old: Variant = obj.get(pname)
 		obj.set(pname, p)
 		if _undo:
 			_undo.record_property(obj, pname, old, p))
@@ -394,7 +394,9 @@ func _add_color(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	picker.color = obj.get(pname)
 	row.add_child(picker)
 	var color_before: Color
-	picker.about_to_popup.connect(func():
+	# pressed fires before the popup appears — snapshot here so popup_closed
+	# can compare against the pre-session value for undo.
+	picker.pressed.connect(func():
 		color_before = obj.get(pname))
 	picker.color_changed.connect(func(c: Color):
 		obj.set(pname, c))
@@ -412,7 +414,7 @@ func _add_enum(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	opt.selected = int(obj.get(pname))
 	row.add_child(opt)
 	opt.item_selected.connect(func(i: int):
-		var old := obj.get(pname)
+		var old: Variant = obj.get(pname)
 		obj.set(pname, i)
 		if _undo:
 			_undo.record_property(obj, pname, old, i))

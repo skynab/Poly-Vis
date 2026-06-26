@@ -22,6 +22,12 @@ uniform float u_turbulence = 2.0;
 uniform float u_drag : hint_range(0.0, 4.0) = 0.4;
 uniform float u_seed = 0.0;
 
+// Particle appearance (Prompt 8.2 / 8.3)
+uniform float u_particle_size = 0.04;
+uniform bool  u_size_curve    = false;   // shrink to 0 over lifetime
+uniform float u_rotation_speed = 0.0;   // radians/sec at particle_lifetime; randomised per-particle
+uniform float u_particle_brightness = 1.0; // multiplies final COLOR.rgb before output
+
 uniform vec3 u_color_a : source_color = vec3(0.1, 0.8, 0.7);
 uniform vec3 u_color_b : source_color = vec3(0.95, 0.95, 0.2);
 
@@ -147,7 +153,14 @@ void start() {
 	vec3 dir = normalize(u_direction + jitter + vec3(0.0, 0.0001, 0.0));
 	VELOCITY = (EMISSION_TRANSFORM * vec4(dir * u_initial_speed, 0.0)).xyz;
 
-	CUSTOM = vec4(hash11(r + 6.0), 0.0, 0.0, 0.0);          // x: seed, y: age fraction
+	// x: per-particle seed  y: age fraction (accumulated in process)
+	// z: random spin factor [-1,1] used to randomise rotation direction/speed
+	CUSTOM = vec4(hash11(r + 6.0), 0.0, hash11(r + 7.0) * 2.0 - 1.0, 0.0);
+
+	// Initialise transform basis scaled to particle_size (unit-scale meshes).
+	TRANSFORM[0].xyz = vec3(u_particle_size, 0.0, 0.0);
+	TRANSFORM[1].xyz = vec3(0.0, u_particle_size, 0.0);
+	TRANSFORM[2].xyz = vec3(0.0, 0.0, u_particle_size);
 }
 
 void process() {
@@ -172,6 +185,19 @@ void process() {
 	VELOCITY *= clamp(1.0 - u_drag * DELTA, 0.0, 1.0);
 
 	CUSTOM.y = clamp(CUSTOM.y + DELTA / LIFETIME, 0.0, 1.0);
+
+	// --- particle size + Z-axis spin (Prompt 8.2) ----------------------------
+	// sz: full size at birth, shrinks to 0 at end of life when size_curve on.
+	float sz = u_particle_size * (u_size_curve ? max(1.0 - CUSTOM.y, 0.0) : 1.0);
+	// angle: deterministic from age; CUSTOM.z [-1,1] randomises direction/rate.
+	float angle = CUSTOM.z * u_rotation_speed * CUSTOM.y * LIFETIME;
+	float ca = cos(angle);
+	float sa = sin(angle);
+	// Overwrite the full 3×3 basis so scale and rotation are always consistent.
+	TRANSFORM[0].xyz = vec3( ca, sa, 0.0) * sz;
+	TRANSFORM[1].xyz = vec3(-sa, ca, 0.0) * sz;
+	TRANSFORM[2].xyz = vec3(0.0, 0.0, 1.0) * sz;
+
 	float cval;
 	if (u_color_source == 0) {
 		cval = pos.y;
@@ -193,4 +219,5 @@ void process() {
 	if (iw > 0.0001) {
 		COLOR.rgb = mix(COLOR.rgb, icol / iw, iamt);
 	}
+	COLOR.rgb *= u_particle_brightness;
 }
