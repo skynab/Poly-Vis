@@ -29,9 +29,18 @@ uniform float u_rim_power : hint_range(0.5, 8.0) = 2.5;
 uniform vec3 u_rim_color : source_color = vec3(1.0);
 uniform float u_translucency : hint_range(0.0, 1.0) = 0.0;
 
+// --- influence fields (Prompt 5.3) -----------------------------------------
+uniform int u_influence_count = 0;
+uniform vec3 u_influence_pos[8];
+uniform float u_influence_radius[8];
+uniform float u_influence_strength[8];   // signed: + attract, - repel (mesh dents/bulges)
+uniform vec3 u_influence_color[8];
+
 varying vec3 v_world_pos;
 varying vec3 v_obj_pos;
 varying float v_disp;
+varying float v_infl_amt;
+varying vec3 v_infl_color;
 
 // --- Ashima simplex noise (snoise) -----------------------------------------
 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -88,6 +97,26 @@ void vertex() {
 	float n = snoise(VERTEX * u_anim_frequency + vec3(0.0, u_time * u_anim_speed, 0.0));
 	v_disp = n;
 	VERTEX += dir * n * u_anim_amplitude;
+
+	// Influence fields: smooth dent/bulge + color shift near each influence.
+	vec3 wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float infl_disp = 0.0;
+	float infl_amt = 0.0;
+	vec3 infl_col = vec3(0.0);
+	float infl_wsum = 0.0;
+	for (int i = 0; i < u_influence_count; i++) {
+		float d = distance(wpos, u_influence_pos[i]);
+		float fall = 1.0 - smoothstep(0.0, max(u_influence_radius[i], 0.0001), d);
+		// Attract (+) dents inward, repel (-) bulges outward.
+		infl_disp -= fall * u_influence_strength[i];
+		infl_amt = max(infl_amt, fall);
+		infl_col += u_influence_color[i] * fall;
+		infl_wsum += fall;
+	}
+	VERTEX += dir * infl_disp;
+	v_infl_amt = clamp(infl_amt, 0.0, 1.0);
+	v_infl_color = infl_wsum > 0.0001 ? infl_col / infl_wsum : vec3(0.0);
+
 	v_obj_pos = VERTEX;
 	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
@@ -118,6 +147,7 @@ void fragment() {
 	NORMAL = FRONT_FACING ? face_n : -face_n;
 
 	ALBEDO = u_use_colormap ? texture(u_colormap, vec2(color_t(), 0.5)).rgb : u_base_color;
+	ALBEDO = mix(ALBEDO, v_infl_color, v_infl_amt);
 	ROUGHNESS = u_roughness;
 	METALLIC = u_metallic;
 

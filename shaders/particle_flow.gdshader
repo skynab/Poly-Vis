@@ -36,6 +36,13 @@ uniform vec2 u_color_range = vec2(0.0, 3.0);
 uniform sampler2D emission_points : filter_nearest, repeat_disable;
 uniform int u_point_count = 0;
 
+// Influence fields (Prompt 5.2): signed strength + attracts, - repels.
+uniform int u_influence_count = 0;
+uniform vec3 u_influence_pos[8];
+uniform float u_influence_radius[8];
+uniform float u_influence_strength[8];
+uniform vec3 u_influence_color[8];
+
 // --- hash RNG --------------------------------------------------------------
 float hash11(float p) {
 	p = fract(p * 0.1031);
@@ -148,6 +155,20 @@ void process() {
 	vec3 flow = curl_noise(pos * u_flow_scale + vec3(0.0, TIME * u_flow_speed, 0.0));
 	VELOCITY += flow * u_turbulence * DELTA;
 	VELOCITY += u_gravity * DELTA;
+
+	// Influence fields: attract/repel acceleration + colour shift, smooth falloff.
+	float iamt = 0.0;
+	vec3 icol = vec3(0.0);
+	float iw = 0.0;
+	for (int i = 0; i < u_influence_count; i++) {
+		vec3 to = u_influence_pos[i] - pos;
+		float d = length(to) + 0.0001;
+		float fall = 1.0 - smoothstep(0.0, max(u_influence_radius[i], 0.0001), d);
+		VELOCITY += (to / d) * u_influence_strength[i] * fall * 8.0 * DELTA;
+		iamt = max(iamt, fall);
+		icol += u_influence_color[i] * fall;
+		iw += fall;
+	}
 	VELOCITY *= clamp(1.0 - u_drag * DELTA, 0.0, 1.0);
 
 	CUSTOM.y = clamp(CUSTOM.y + DELTA / LIFETIME, 0.0, 1.0);
@@ -168,5 +189,8 @@ void process() {
 		COLOR = vec4(texture(u_colormap, vec2(ct, 0.5)).rgb, 1.0);
 	} else {
 		COLOR = vec4(mix(u_color_a, u_color_b, CUSTOM.y), 1.0);
+	}
+	if (iw > 0.0001) {
+		COLOR.rgb = mix(COLOR.rgb, icol / iw, iamt);
 	}
 }

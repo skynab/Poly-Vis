@@ -5,8 +5,10 @@ extends Node3D
 class_name Main
 
 @onready var manager: VisualizationManager = $VisualizationManager
-@onready var camera: Node = $Camera3D
+@onready var camera: Camera3D = $Camera3D
 @onready var panel: ParameterPanel = $UI/ParameterPanel
+@onready var influence: InfluenceController = $InfluenceController
 
 func _ready() -> void:
 	panel.setup(manager, camera)
+	influence.setup(manager, camera)

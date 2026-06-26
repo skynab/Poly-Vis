@@ -69,6 +69,7 @@ func _build_base() -> void:
 	root.add_child(bar2)
 	_add_button(bar2, "+ Mesh", func(): _manager.add_mesh())
 	_add_button(bar2, "+ Particles", func(): _manager.add_particles())
+	_add_button(bar2, "+ Influence", func(): _manager.add_influence())
 	_add_button(bar2, "Remove", func(): _manager.remove_selected())
 
 	root.add_child(HSeparator.new())

@@ -19,23 +19,27 @@ func _ready() -> void:
 func _scan_children() -> void:
 	objects.clear()
 	for c in get_children():
-		if c is PolyMesh or c is PolyParticles:
+		if is_managed(c):
 			objects.append(c)
 			_spawn_counter += 1
 	objects_changed.emit()
 	if selected == null and not objects.is_empty():
 		select(objects[0])
 
-func is_visualization(node: Node) -> bool:
-	return node is PolyMesh or node is PolyParticles
+func is_managed(node: Node) -> bool:
+	return node is PolyMesh or node is PolyParticles or node is InfluenceObject
 
 func add_mesh() -> Node3D:
-	var m := PolyMesh.new()
-	return _register(m)
+	return _register(PolyMesh.new())
 
 func add_particles() -> Node3D:
-	var p := PolyParticles.new()
-	return _register(p)
+	return _register(PolyParticles.new())
+
+func add_influence() -> Node3D:
+	var inf := _register(InfluenceObject.new())
+	# Influences start in front of the origin rather than offset down the X row.
+	inf.position = Vector3(0.0, 0.0, 2.5)
+	return inf
 
 func _register(obj: Node3D) -> Node3D:
 	_spawn_counter += 1
@@ -53,6 +57,8 @@ func _type_label(obj: Node) -> String:
 		return "PolyMesh"
 	if obj is PolyParticles:
 		return "PolyParticles"
+	if obj is InfluenceObject:
+		return "Influence"
 	return "Object"
 
 func remove_selected() -> void:

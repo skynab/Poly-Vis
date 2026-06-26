@@ -1,0 +1,127 @@
+extends Node3D
+## Drives the interaction system (Prompts 5.2 / 5.4).
+##
+## Each frame it gathers all enabled InfluenceObjects from the VisualizationManager,
+## packs their data into fixed-size arrays and pushes them to every visualization
+## that implements set_influences(). It also moves the active influence with the
+## mouse (drag, or continuous follow) and fires proximity enter/exit events that
+## downstream effects can hook (bursts, colour flips, ...).
+class_name InfluenceController
+
+const MAX_INFLUENCES := 8
+
+signal proximity_entered(influence: InfluenceObject, target: Node3D)
+signal proximity_exited(influence: InfluenceObject, target: Node3D)
+
+## Demo reaction: restart a particle system when an influence enters it.
+@export var burst_on_enter: bool = true
+
+var _manager: VisualizationManager
+var _camera: Camera3D
+var _dragging: bool = false
+var _proximity: Dictionary = {}   # "infl_id:target_id" -> bool
+
+func setup(manager: VisualizationManager, camera: Camera3D) -> void:
+	_manager = manager
+	_camera = camera
+	if not proximity_entered.is_connected(_on_proximity_entered):
+		proximity_entered.connect(_on_proximity_entered)
+	set_process(true)
+
+func _process(_delta: float) -> void:
+	if _manager == null:
+		return
+	_update_follow()
+	_push_uniforms()
+	_update_proximity()
+
+# --- input: drag / follow ---------------------------------------------------
+func _unhandled_input(event: InputEvent) -> void:
+	if _camera == null:
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		_dragging = event.pressed and _active_influence() != null
+	elif event is InputEventMouseMotion and _dragging:
+		var infl := _active_influence()
+		if infl:
+			infl.global_position = _project_mouse(infl.global_position)
+
+func _update_follow() -> void:
+	for infl in _influences():
+		if infl.follow_mouse:
+			infl.global_position = _project_mouse(infl.global_position)
+
+## Project the mouse onto a camera-facing plane through plane_point.
+func _project_mouse(plane_point: Vector3) -> Vector3:
+	var vp := get_viewport()
+	if vp == null:
+		return plane_point
+	var mouse := vp.get_mouse_position()
+	var origin := _camera.project_ray_origin(mouse)
+	var dir := _camera.project_ray_normal(mouse)
+	var n := -_camera.global_transform.basis.z
+	var plane := Plane(n, n.dot(plane_point))
+	var hit = plane.intersects_ray(origin, dir)
+	return hit if hit != null else plane_point
+
+func _active_influence() -> InfluenceObject:
+	if _manager.selected is InfluenceObject:
+		return _manager.selected as InfluenceObject
+	var all := _influences()
+	return all[0] if not all.is_empty() else null
+
+func _influences() -> Array[InfluenceObject]:
+	var out: Array[InfluenceObject] = []
+	for o in _manager.objects:
+		if o is InfluenceObject:
+			out.append(o as InfluenceObject)
+	return out
+
+# --- push uniforms to visualizations ---------------------------------------
+func _push_uniforms() -> void:
+	var active: Array[InfluenceObject] = []
+	for infl in _influences():
+		if infl.enabled and infl.strength > 0.0:
+			active.append(infl)
+			if active.size() >= MAX_INFLUENCES:
+				break
+
+	var positions := PackedVector3Array()
+	var radii := PackedFloat32Array()
+	var strengths := PackedFloat32Array()
+	var colors := PackedVector3Array()
+	for i in MAX_INFLUENCES:
+		if i < active.size():
+			var infl := active[i]
+			positions.append(infl.global_position)
+			radii.append(infl.radius)
+			strengths.append(infl.signed_strength())
+			colors.append(Vector3(infl.influence_color.r, infl.influence_color.g, infl.influence_color.b))
+		else:
+			positions.append(Vector3.ZERO)
+			radii.append(0.0)
+			strengths.append(0.0)
+			colors.append(Vector3.ZERO)
+
+	for o in _manager.objects:
+		if o.has_method("set_influences"):
+			o.set_influences(active.size(), positions, radii, strengths, colors)
+
+# --- proximity events (Prompt 5.4) -----------------------------------------
+func _update_proximity() -> void:
+	for infl in _influences():
+		for target in _manager.objects:
+			if target is InfluenceObject:
+				continue
+			var key := "%d:%d" % [infl.get_instance_id(), target.get_instance_id()]
+			var inside := infl.enabled and infl.global_position.distance_to(target.global_position) < infl.radius
+			var was_inside: bool = _proximity.get(key, false)
+			if inside and not was_inside:
+				proximity_entered.emit(infl, target)
+			elif not inside and was_inside:
+				proximity_exited.emit(infl, target)
+			_proximity[key] = inside
+
+func _on_proximity_entered(_influence: InfluenceObject, target: Node3D) -> void:
+	if burst_on_enter and target is PolyParticles:
+		(target as PolyParticles).restart()

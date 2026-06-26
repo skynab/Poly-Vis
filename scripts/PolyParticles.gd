@@ -239,6 +239,17 @@ func set_color_max(v: float) -> void:
 	color_max = v
 	_set_param("u_color_range", Vector2(color_min, color_max))
 
+## Push influence-field data into the particle shader (Prompt 5.2).
+func set_influences(count: int, positions: PackedVector3Array, radii: PackedFloat32Array,
+		strengths: PackedFloat32Array, colors: PackedVector3Array) -> void:
+	if not _mat:
+		return
+	_mat.set_shader_parameter("u_influence_count", count)
+	_mat.set_shader_parameter("u_influence_pos", positions)
+	_mat.set_shader_parameter("u_influence_radius", radii)
+	_mat.set_shader_parameter("u_influence_strength", strengths)
+	_mat.set_shader_parameter("u_influence_color", colors)
+
 ## Schema consumed by the ParameterPanel (Prompt 4.1).
 func get_param_schema() -> Array:
 	return [
