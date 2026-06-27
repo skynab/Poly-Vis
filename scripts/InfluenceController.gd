@@ -67,7 +67,24 @@ func _optitrack_pos(infl: InfluenceObject) -> Vector3:
 	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
 		return infl.global_position
 	var p: Vector3 = ot.call("get_rigid_body_pos", infl.rigid_body_asset_id)
-	return p + infl.track_position_offset
+	p += infl.track_position_offset
+	if infl.project_to_view:
+		p = _project_to_view(p)
+	return p
+
+## Flatten a world point onto the plane the camera is looking at (a camera-facing
+## plane through the world origin), keeping the point's on-screen location. Used by
+## project_to_view to drive a tracked influence in screen space with locked depth.
+func _project_to_view(world_point: Vector3) -> Vector3:
+	if _camera == null:
+		return world_point
+	var screen := _camera.unproject_position(world_point)
+	var origin := _camera.project_ray_origin(screen)
+	var dir := _camera.project_ray_normal(screen)
+	var n := -_camera.global_transform.basis.z
+	var plane := Plane(n, 0.0)  # through the world origin, facing the camera
+	var hit = plane.intersects_ray(origin, dir)
+	return hit if hit != null else world_point
 
 ## Project the mouse onto a camera-facing plane through plane_point.
 func _project_mouse(plane_point: Vector3) -> Vector3:

@@ -145,7 +145,7 @@ static func _decode(type: String, raw: Variant) -> Variant:
 			return Color(raw[0], raw[1], raw[2], raw[3])
 		"vector3":
 			return Vector3(raw[0], raw[1], raw[2])
-		"int", "enum":
+		"int", "int_field", "enum":
 			return int(raw)
 		"colormap_preset":
 			return _decode_colormap(raw)

@@ -136,8 +136,9 @@ world position. `show_visual = false` hides the shell/core meshes (via per-mesh
 visibility, not node visibility) while the influence keeps acting — feel the
 effect without seeing the source. Meshes show only when `enabled and show_visual`.
 `track_rigid_body = true` drives its position from an OptiTrack rigid body
-(`rigid_body_asset_id` + `track_position_offset`) instead of the mouse — see
-"OptiTrack motion capture" below.
+(`rigid_body_asset_id` + `track_position_offset`, optionally `project_to_view`)
+instead of the mouse, with the NatNet connection settings + a Connect/Reconnect
+action exposed in its panel section — see "OptiTrack motion capture" below.
 
 ### InfluenceController
 Runs each frame: gathers enabled influences → packs into fixed-size arrays
@@ -179,9 +180,11 @@ Auto-generates controls from `get_param_schema()` arrays. Schema format:
 ]
 ```
 
-Supported types: `float`, `int`, `bool`, `color`, `enum`, `vector3`,
-`colormap_preset`, `action`. Sliders record undo on `drag_ended`; booleans and
-enums record immediately. Colors record on `popup_closed`. An `action` prop
+Supported types: `float`, `int`, `int_field`, `string`, `bool`, `color`, `enum`,
+`vector3`, `colormap_preset`, `action`. `float`/`int` render sliders; `int_field`
+renders a SpinBox (exact entry, e.g. an OptiTrack asset ID); `string` renders a
+LineEdit (committed on Enter / focus-out). Sliders record undo on `drag_ended`;
+booleans and enums record immediately. Colors record on `popup_closed`. An `action` prop
 renders a button that calls `obj.<name>()` then refreshes the object's controls;
 it stores no value and CompositionIO skips it during (de)serialization.
 
@@ -199,7 +202,7 @@ dialog; external paths load through `Image.load_from_file`). Controls `corner`,
 CanvasLayer, above the 3D view) and is NOT the CaptureManager's `ui_layer`, so it
 stays visible in screenshots/recordings as a watermark. Schema-driven like
 SceneEnvironment; serialized under `"hud"`. `custom_path` is a `"string"` schema
-prop — serialized but rendered with no panel control (set via the Import button).
+prop — it renders an editable text field and can also be set via the Import button.
 
 Drop shadow (`shadow_enabled`, `shadow_color`, `shadow_offset_x/y`): a second
 TextureRect (`_shadow`) added before the logo rect so it renders behind. Uses the
@@ -379,7 +382,9 @@ editor; an exported release build would need a release DLL not shipped here.
 
 Autoload API used by Poly-Vis (all defensive — see `_optitrack_pos`):
 `is_connected_to_motive() -> bool`, `get_rigid_body_pos(asset_id) -> Vector3`
-(already in Godot space), `get_rigid_body_rot(asset_id) -> Quaternion`.
+(already in Godot space), `get_rigid_body_rot(asset_id) -> Quaternion`,
+`set_server_address/set_client_address/set_multicast`, `connect_to_motive` /
+`disconnect_from_motive`.
 
 Integration: an `InfluenceObject` with `track_rigid_body = true` has its world
 position driven by `OptiTrack.get_rigid_body_pos(rigid_body_asset_id) +
@@ -387,10 +392,22 @@ track_position_offset`, evaluated each frame in `InfluenceController._update_fol
 (priority over `follow_mouse`). The lookup is guarded with
 `get_node_or_null("/root/OptiTrack")` + `has_method` + connection checks, so the
 app runs normally with the plugin absent, on non-Windows, or with Motive offline
-— the influence just holds position. Connection settings (server/client IP,
-multicast) live in `optitrack_settings.tres` and the editor's OptiTrack dock.
-To use: open in the editor, configure + start the connection in the OptiTrack
-dock, set the influence's `rigid_body_asset_id` to a streamed asset, run.
+— the influence just holds position.
+
+The influence's "OptiTrack" panel section (`get_param_schema`) carries the
+connection settings too, so they save/load with the composition: `optitrack_server_ip`
+/ `optitrack_client_ip` (`string` fields, default `127.0.0.1`), `optitrack_multicast`
+(bool — on = multicast, off = unicast), and a **Connect / Reconnect** action
+(`reconnect_optitrack()`) that pushes those three to the autoload and reconnects
+(all guarded → no-op without the plugin). `rigid_body_asset_id` uses the `int_field`
+(SpinBox) control for exact entry. `project_to_view = true` flattens the streamed
+position onto a camera-facing plane through the world origin
+(`InfluenceController._project_to_view`), so the rigid body drives the influence in
+screen space with locked depth. The editor's OptiTrack dock + `optitrack_settings.tres`
+remain the other place to configure the connection.
+To use: open in the editor, set the influence's IPs / transport and click Connect /
+Reconnect (or use the OptiTrack dock), set `rigid_body_asset_id` to a streamed
+asset, run.
 
 ---
 

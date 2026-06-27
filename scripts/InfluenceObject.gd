@@ -30,6 +30,20 @@ enum Mode { ATTRACT, REPEL }
 @export var rigid_body_asset_id: int = 999
 ## Added to the streamed position — maps Motive's origin to a point in the scene.
 @export var track_position_offset: Vector3 = Vector3.ZERO
+## When true the streamed position is flattened onto the plane the camera is
+## currently looking at (through the world origin), so the rigid body drives the
+## influence in screen space — depth is locked to the view. See
+## InfluenceController._project_to_view.
+@export var project_to_view: bool = false
+
+@export_subgroup("Connection")
+## NatNet server (Motive host) IP. Applied to the OptiTrack autoload by
+## reconnect_optitrack(); travels with the saved composition.
+@export var optitrack_server_ip: String = "127.0.0.1"
+## NatNet client (this machine) IP — the local interface that receives the stream.
+@export var optitrack_client_ip: String = "127.0.0.1"
+## Transport mode: true = multicast, false = unicast.
+@export var optitrack_multicast: bool = true
 
 var _shell: MeshInstance3D
 var _core: MeshInstance3D
@@ -116,6 +130,25 @@ func set_influence_color(v: Color) -> void:
 	influence_color = v
 	_update_visual()
 
+## Push the connection settings to the OptiTrack autoload and (re)connect. Safe to
+## call with the plugin absent / autoload missing — every call is guarded, so it's
+## simply a no-op off Windows or without Motive. Invoked by the panel's action
+## button; the dynamic call() keeps this compiling without the GDExtension present.
+func reconnect_optitrack() -> void:
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null:
+		return
+	if ot.has_method("set_server_address"):
+		ot.call("set_server_address", optitrack_server_ip)
+	if ot.has_method("set_client_address"):
+		ot.call("set_client_address", optitrack_client_ip)
+	if ot.has_method("set_multicast"):
+		ot.call("set_multicast", optitrack_multicast)
+	if ot.has_method("disconnect_from_motive"):
+		ot.call("disconnect_from_motive")
+	if ot.has_method("connect_to_motive"):
+		ot.call("connect_to_motive")
+
 ## Schema consumed by the ParameterPanel (Prompt 4.1).
 func get_param_schema() -> Array:
 	return [{
@@ -128,8 +161,20 @@ func get_param_schema() -> Array:
 			{"name": "influence_color", "type": "color"},
 			{"name": "show_visual", "type": "bool"},
 			{"name": "follow_mouse", "type": "bool"},
+		]
+	}, {
+		"title": "OptiTrack",
+		"props": [
 			{"name": "track_rigid_body", "type": "bool"},
-			{"name": "rigid_body_asset_id", "type": "int", "min": 0, "max": 9999, "step": 1},
+			{"name": "rigid_body_asset_id", "type": "int_field", "min": 0, "max": 9999, "step": 1,
+				"hint": "Motive asset ID of the rigid body to follow"},
 			{"name": "track_position_offset", "type": "vector3"},
+			{"name": "project_to_view", "type": "bool",
+				"hint": "Lock the tracked position to a projection onto the current view"},
+			{"name": "optitrack_server_ip", "type": "string", "hint": "Motive host IP"},
+			{"name": "optitrack_client_ip", "type": "string", "hint": "Local interface IP"},
+			{"name": "optitrack_multicast", "type": "bool", "hint": "On = multicast, off = unicast"},
+			{"name": "reconnect_optitrack", "type": "action", "label": "Connect / Reconnect",
+				"hint": "Apply the IP / transport settings above and (re)connect to Motive"},
 		]
 	}]

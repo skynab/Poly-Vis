@@ -398,6 +398,8 @@ func _add_section(host: VBoxContainer, title: String) -> VBoxContainer:
 func _add_control(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	match prop["type"]:
 		"float", "int":   _add_number(body, obj, prop)
+		"int_field":      _add_int_field(body, obj, prop)
+		"string":         _add_string(body, obj, prop)
 		"bool":           _add_bool(body, obj, prop)
 		"color":          _add_color(body, obj, prop)
 		"enum":           _add_enum(body, obj, prop)
@@ -468,6 +470,50 @@ func _add_number(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	slider.drag_ended.connect(func(changed: bool):
 		if changed and _undo != null and drag_start[0] != null:
 			_undo.record_property(obj, pname, drag_start[0], obj.get(pname)))
+
+## Integer entry as a SpinBox (typed/stepped number field) rather than a slider —
+## for values you want to set exactly, like an OptiTrack rigid-body asset ID.
+func _add_int_field(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
+	var pname: String = prop["name"]
+	var row := _row(body, pname.capitalize(), prop.get("hint", ""))
+	var sb := SpinBox.new()
+	sb.min_value = prop.get("min", 0)
+	sb.max_value = prop.get("max", 9999)
+	sb.step = prop.get("step", 1)
+	sb.rounded = true
+	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sb.value = obj.get(pname)
+	row.add_child(sb)
+	var before: Array = [int(obj.get(pname))]
+	sb.value_changed.connect(func(v: float):
+		var iv := int(round(v))
+		if iv == before[0]:
+			return
+		obj.set(pname, iv)
+		if _undo:
+			_undo.record_property(obj, pname, before[0], iv)
+		before[0] = iv)
+
+## Single-line text field (e.g. an IP address). Commits on Enter or focus loss and
+## records one undo step per edit session (the value at focus-in vs focus-out).
+func _add_string(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
+	var pname: String = prop["name"]
+	var row := _row(body, pname.capitalize(), prop.get("hint", ""))
+	var edit := LineEdit.new()
+	edit.text = str(obj.get(pname))
+	edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(edit)
+	var before: Array = [str(obj.get(pname))]
+	edit.focus_entered.connect(func(): before[0] = str(obj.get(pname)))
+	var commit := func(t: String):
+		if t == before[0]:
+			return
+		obj.set(pname, t)
+		if _undo:
+			_undo.record_property(obj, pname, before[0], t)
+		before[0] = t
+	edit.text_submitted.connect(func(t: String): commit.call(t))
+	edit.focus_exited.connect(func(): commit.call(edit.text))
 
 func _add_bool(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]

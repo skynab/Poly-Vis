@@ -232,8 +232,8 @@ func get_param_schema() -> Array:
 		"props": [
 			{"name": "enabled", "type": "bool"},
 			{"name": "logo", "type": "enum", "options": ["OptiTrack White", "OptiTrack Black", "Custom"]},
-			# custom_path has no panel control (set via Import); listed so it serializes.
-			{"name": "custom_path", "type": "string"},
+			# Editable text field (or set via the Import button below); also serializes.
+			{"name": "custom_path", "type": "string", "hint": "Path to a custom logo image"},
 			{"name": "corner", "type": "enum", "options": ["Top Left", "Top Right", "Bottom Left", "Bottom Right", "Center"]},
 			{"name": "size_scale", "type": "float", "min": 0.02, "max": 0.6, "step": 0.01},
 			{"name": "opacity", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
