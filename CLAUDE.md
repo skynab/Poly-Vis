@@ -263,11 +263,14 @@ Neon Rain is the only one that ships a `"scene"` block (dark room + bloom) and
 stacks three PolyParticles layers — palette-colored disc rain, a
 `follow_influence` spark fountain trailing the cursor, and downward Streak rain —
 plus a hidden follow-mouse influence. Draped Silk, Sculpted Drape, Glacier Drape,
-and Dune Drape are the PolyCloth showcases — a family tuned to drape in broad
-folds without crumpling in on themselves (low `fold`/`warp`, moderate
-`curvature_amount`), each pairing a warm colormap with a contrasting `cool_color`
-for the two-tone facet split (Draped/Sculpted: pink + periwinkle, Glacier: teal +
-amber, Dune: purple-yellow + blue).
+and Dune Drape are the PolyCloth showcases, each pairing a warm colormap with a
+contrasting `cool_color` for the two-tone facet split (Draped/Sculpted: pink +
+periwinkle, Glacier: teal + amber, Dune: purple-yellow + blue). Draped Silk,
+Glacier, and Dune are the calm variants — broad folds, low `fold`/`warp`, moderate
+`curvature_amount`. Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
+`curvature_amount` and fine `resolution` give the heavily-crumpled, ribbon-like
+flowing form whose folds arc apart to reveal the white room through the gaps
+between them.
 
 ---
 
