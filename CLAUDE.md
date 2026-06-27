@@ -37,7 +37,7 @@ Main [Node3D]                  Main.gd — root coordinator
 ├── HudLogo [CanvasLayer]      Added at runtime — logo overlay (layer 0, in captures)
 │
 └── UI [CanvasLayer]           layer 1 — hidden during capture
-    ├── ParameterPanel         Right-docked control panel (340 px)
+    ├── ParameterPanel         Right-docked control panel (384 px)
     └── FPS label              Top-left corner, added at runtime
 ```
 
@@ -122,6 +122,14 @@ vertex sums them via `_curvature_offset(u, v)`. Same seed → same shape, so the
 whole form serializes as one int. `randomize_shape()` (exposed as an `action`
 button) re-seeds `noise_seed` + `shape_seed` for a fresh unique shape and forces
 `curvature_amount` on if it was zero.
+
+Holes (`hole_amount`, `hole_scale`): punches actual gaps through the sheet. During
+the triangle pass `_build_surface()` samples a per-quad hole noise field at each
+quad center and drops the quad (skips both its triangles) when the sample exceeds
+`hole_threshold = 1.0 - hole_amount * 1.7` — so higher `hole_amount` removes more
+(0 = solid), and `hole_scale` (the field frequency) sets hole size/count. Holes
+follow quad edges (low-poly torn-fabric rims); the `cull_disabled` shader shows the
+cloth underside through them. Geometry-level, so `set_hole_*` call `rebuild()`.
 
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
@@ -273,7 +281,7 @@ Glacier, and Dune are the calm variants — broad folds, low `fold`/`warp`, mode
 `curvature_amount`. Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
 `curvature_amount` and fine `resolution` give the heavily-crumpled, ribbon-like
 flowing form whose folds arc apart to reveal the white room through the gaps
-between them.
+between them, plus `hole_amount` punched through the sheet for torn-fabric gaps.
 
 ---
 

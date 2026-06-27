@@ -44,6 +44,15 @@ const CLOTH_SHADER := preload("res://shaders/polycloth.gdshader")
 ## Seeds the random curvature. Each value yields a unique, reproducible shape.
 @export var shape_seed: int = 0: set = set_shape_seed
 
+@export_group("Holes")
+## Punches holes through the sheet — roughly the fraction of the surface dropped
+## as gaps. 0 == solid. A noise field decides which quads vanish, so the holes are
+## organic torn-fabric patches rather than a regular grid. The double-sided shader
+## shows the cloth's underside at the rims.
+@export_range(0.0, 1.0) var hole_amount: float = 0.0: set = set_hole_amount
+## Patch size of the hole field (higher = smaller, more numerous holes).
+@export_range(0.02, 1.0) var hole_scale: float = 0.2: set = set_hole_scale
+
 @export_group("Rendering")
 @export_range(0.0, 1.0) var surface_roughness: float = 0.85: set = set_surface_roughness
 @export_range(0.0, 1.0) var surface_metallic: float = 0.0: set = set_surface_metallic
@@ -129,6 +138,12 @@ func _build_surface() -> void:
 	amp_field.fractal_type = FastNoiseLite.FRACTAL_FBM
 	amp_field.fractal_octaves = 2
 
+	# Field deciding where the sheet is punched through (sampled per quad below).
+	var holes := FastNoiseLite.new()
+	holes.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	holes.seed = noise_seed + 4242
+	holes.frequency = hole_scale
+
 	var lobes := _build_curvature_lobes()
 
 	# Sample a (res+1)^2 grid of crumpled positions, plus the per-vertex height
@@ -159,9 +174,18 @@ func _build_surface() -> void:
 
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Drop a quad when its center samples above the hole threshold; higher
+	# hole_amount lowers the bar so more of the sheet vanishes (0 == solid).
+	var cut_holes := hole_amount > 0.0001
+	var hole_threshold := 1.0 - hole_amount * 1.7
 	# Two triangles per quad, unique verts -> flat per-face normals.
 	for gz in resolution:
 		for gx in resolution:
+			if cut_holes:
+				var hx := -extent + (gx + 0.5) * step
+				var hz := -extent + (gz + 0.5) * step
+				if holes.get_noise_2d(hx, hz) > hole_threshold:
+					continue
 			var i00 := gz * n + gx
 			var i10 := gz * n + gx + 1
 			var i01 := (gz + 1) * n + gx
@@ -309,6 +333,14 @@ func set_shape_seed(v: int) -> void:
 	shape_seed = v
 	rebuild()
 
+func set_hole_amount(v: float) -> void:
+	hole_amount = v
+	rebuild()
+
+func set_hole_scale(v: float) -> void:
+	hole_scale = v
+	rebuild()
+
 func set_surface_roughness(v: float) -> void:
 	surface_roughness = v
 	if _surface_mat:
@@ -431,6 +463,10 @@ func get_param_schema() -> Array:
 			{"name": "shape_seed", "type": "int", "min": 0, "max": 9999, "step": 1},
 			{"name": "randomize_shape", "type": "action", "label": "Randomize Shape",
 				"hint": "Generate a unique curvature + crumple from new random seeds"},
+		]},
+		{"title": "Holes", "props": [
+			{"name": "hole_amount", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+			{"name": "hole_scale", "type": "float", "min": 0.02, "max": 1.0, "step": 0.01},
 		]},
 		{"title": "Rendering", "props": [
 			{"name": "surface_roughness", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},

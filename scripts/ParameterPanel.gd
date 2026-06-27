@@ -33,7 +33,7 @@ var _save_dlg: FileDialog
 var _load_dlg: FileDialog
 var _built := false
 
-const _PANEL_WIDTH := 340          # expanded width of the dock
+const _PANEL_WIDTH := 384          # expanded width of the dock
 var _panel_body: VBoxContainer     # everything below the top bar (all the options)
 var _title_label: Label            # "Poly-Vis" — hidden in fullscreen to shrink the chip
 var _fs_button: Button             # the fullscreen / hide-options toggle
@@ -66,9 +66,9 @@ func setup(manager: VisualizationManager, camera: Node,
 # ---------------------------------------------------------------------------
 func _build_base() -> void:
 	_built = true
-	custom_minimum_size = Vector2(340, 0)
+	custom_minimum_size = Vector2(_PANEL_WIDTH, 0)
 	set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
-	offset_left = -340
+	offset_left = -float(_PANEL_WIDTH)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 10)
@@ -411,7 +411,10 @@ func _row(body: VBoxContainer, label_text: String, tip: String = "") -> HBoxCont
 	var row := HBoxContainer.new()
 	var label := Label.new()
 	label.text = label_text
-	label.custom_minimum_size = Vector2(120, 0)
+	# Narrow-ish fixed column so the value-side controls (sliders, readouts, the
+	# three vector3 spin boxes) keep room and don't clip off the right edge.
+	label.custom_minimum_size = Vector2(108, 0)
+	label.clip_text = true
 	if tip:
 		label.tooltip_text = tip
 	row.add_child(label)
