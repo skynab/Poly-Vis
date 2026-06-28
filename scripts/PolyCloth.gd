@@ -253,10 +253,12 @@ func _curvature_offset(lobes: Array, u: float, v: float) -> Vector3:
 	return d * curvature_amount
 
 ## Offset that maps a flat point onto a circular arc, rolling the sheet into a C.
-## The chosen axis is treated as arc length around a cylinder: one edge sits at the
-## base, and following the axis the surface sweeps through `total` radians — rising,
-## curling over the top, and circling back so a sub-360° sweep leaves the C's mouth.
-## Returned as an additive offset (the crumple/fold rides along on top).
+## The chosen axis is treated as arc length around a cylinder, swept through `total`
+## radians: following the axis the surface rises, curls over the top, and circles
+## back, so a sub-360° sweep leaves the C's mouth open. The arc is centered on the
+## circle's center (origin), so increasing curl tightens the C in place instead of
+## launching it upward — keeps camera framing stable. Additive offset, so the
+## crumple/fold rides along on top.
 func _curl_offset(x: float, z: float) -> Vector3:
 	if curl_amount <= 0.0001:
 		return Vector3.ZERO
@@ -265,7 +267,7 @@ func _curl_offset(x: float, z: float) -> Vector3:
 	var radius := (2.0 * extent) / total           # arc length = sheet length
 	var ang := ((coord + extent) / (2.0 * extent)) * total  # 0..total across the sheet
 	var along := radius * sin(ang) - coord         # remap flat coord onto the arc
-	var up := radius * (1.0 - cos(ang))            # lift toward the top of the circle
+	var up := -radius * cos(ang)                    # centered on the circle's center
 	if curl_axis == CurlAxis.Z:
 		return Vector3(0.0, up, along)
 	return Vector3(along, up, 0.0)

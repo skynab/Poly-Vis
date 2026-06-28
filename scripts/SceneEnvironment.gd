@@ -5,16 +5,20 @@ extends RefCounted
 ## editable in the ParameterPanel and serialized by CompositionIO under "scene",
 ## exactly like the camera. Setters push straight to the bound Environment.
 ##
-## Three background modes (BackgroundMode):
+## Background modes (BackgroundMode):
 ##   COLOR  — flat color (the classic white room).
 ##   NOISE  — animated fractal-noise sky blending bg_color ↔ bg_color2
 ##            (background_noise.gdshader, driven by the sky's own TIME).
 ##   SKYBOX — a panorama image loaded from skybox_path (equirectangular).
+##   AURORA — animated aurora-borealis curtains over bg_color, tinted bg_color2
+##            (aurora_sky.gdshader). Reuses the noise_* props as its
+##            scale / speed / intensity controls.
 class_name SceneEnvironment
 
-enum BackgroundMode { COLOR, NOISE, SKYBOX }
+enum BackgroundMode { COLOR, NOISE, SKYBOX, AURORA }
 
 const NOISE_SKY_SHADER := preload("res://shaders/background_noise.gdshader")
+const AURORA_SKY_SHADER := preload("res://shaders/aurora_sky.gdshader")
 
 var env: Environment
 
@@ -43,6 +47,7 @@ var bloom_intensity: float = 0.8: set = set_bloom_intensity
 # Lazily created sky resources, reused across mode switches.
 var _sky: Sky
 var _noise_mat: ShaderMaterial
+var _aurora_mat: ShaderMaterial
 var _pano_mat: PanoramaSkyMaterial
 var _skybox_loaded_path: String = ""  # cache so _apply() doesn't reload from disk
 var _host: Node          # scene-tree node that hosts the skybox FileDialog
@@ -141,6 +146,21 @@ func _apply() -> void:
 			_sky.process_mode = Sky.PROCESS_MODE_REALTIME
 			_sky.sky_material = _noise_mat
 			env.background_mode = Environment.BG_SKY
+		BackgroundMode.AURORA:
+			if _aurora_mat == null:
+				_aurora_mat = ShaderMaterial.new()
+				_aurora_mat.shader = AURORA_SKY_SHADER
+			# Reuse the noise_* props as the aurora's scale / speed / intensity.
+			_aurora_mat.set_shader_parameter("u_sky_color", bg_color)
+			_aurora_mat.set_shader_parameter("u_color", bg_color2)
+			_aurora_mat.set_shader_parameter("u_scale", noise_scale)
+			_aurora_mat.set_shader_parameter("u_speed", noise_speed)
+			_aurora_mat.set_shader_parameter("u_intensity", noise_contrast)
+			_ensure_sky()
+			# Realtime so the TIME-driven shader re-renders every frame and animates.
+			_sky.process_mode = Sky.PROCESS_MODE_REALTIME
+			_sky.sky_material = _aurora_mat
+			env.background_mode = Environment.BG_SKY
 		BackgroundMode.SKYBOX:
 			_ensure_sky()
 			# Static image — render at higher quality instead of per-frame.
@@ -220,7 +240,7 @@ func get_param_schema() -> Array:
 	return [{
 		"title": "Scene",
 		"props": [
-			{"name": "background_mode", "type": "enum", "options": ["Color", "Noise", "Skybox"]},
+			{"name": "background_mode", "type": "enum", "options": ["Color", "Noise", "Skybox", "Aurora"]},
 			{"name": "bg_color", "type": "color"},
 			{"name": "bg_color2", "type": "color", "hint": "Second noise color (Noise mode)"},
 			{"name": "noise_scale", "type": "float", "min": 0.2, "max": 12.0, "step": 0.1},

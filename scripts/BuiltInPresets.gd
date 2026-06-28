@@ -172,6 +172,122 @@ const PRESETS: Dictionary = {
 		}
 	},
 
+	"Muted Rain": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyParticles",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"count": 9000,
+					"particle_lifetime": 12.0,
+					"emitter_shape": 2,
+					"emitter_extents": [6.0, 6.0, 6.0],
+					"emitter_size": 1.9,
+					"particle_shape": 3,
+					"particle_size": 0.045,
+					"particle_size_curve": false,
+					"particle_rotation_speed": 0.5,
+					"direction": [0.0, -1.0, 0.0],
+					"initial_speed": 0.3,
+					"spread": 0.6,
+					"gravity": [0.0, -0.12, 0.0],
+					"flow_scale": 0.95,
+					"flow_speed": 0.25,
+					"turbulence": 1.8,
+					"drag": 0.6,
+					"flow_seed": 11,
+					"palette_enable_1": true, "palette_color_1": [0.72, 0.5, 0.55, 1.0],
+					"palette_enable_2": true, "palette_color_2": [0.74, 0.68, 0.55, 1.0],
+					"palette_enable_3": true, "palette_color_3": [0.55, 0.66, 0.6, 1.0],
+					"palette_enable_4": true, "palette_color_4": [0.52, 0.6, 0.7, 1.0],
+					"palette_enable_5": true, "palette_color_5": [0.62, 0.55, 0.66, 1.0],
+					"particle_brightness": 1.1
+				}
+			},
+			{
+				"type": "PolyParticles",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"count": 2500,
+					"particle_lifetime": 3.0,
+					"emitter_shape": 1,
+					"emitter_extents": [0.3, 0.3, 0.3],
+					"emitter_size": 1.0,
+					"particle_shape": 4,
+					"particle_size": 0.035,
+					"particle_size_curve": true,
+					"particle_rotation_speed": 2.0,
+					"direction": [0.0, 1.0, 0.0],
+					"initial_speed": 4.0,
+					"spread": 0.35,
+					"gravity": [0.0, -1.5, 0.0],
+					"flow_scale": 1.1,
+					"flow_speed": 0.5,
+					"turbulence": 2.2,
+					"drag": 0.3,
+					"flow_seed": 5,
+					"follow_influence": true,
+					"palette_enable_1": true, "palette_color_1": [0.78, 0.74, 0.64, 1.0],
+					"palette_enable_2": true, "palette_color_2": [0.72, 0.6, 0.66, 1.0],
+					"palette_enable_3": true, "palette_color_3": [0.6, 0.68, 0.74, 1.0],
+					"particle_brightness": 1.2
+				}
+			},
+			{
+				"type": "PolyParticles",
+				"position": [0.0, 5.0, 0.0],
+				"params": {
+					"count": 3500,
+					"particle_lifetime": 5.0,
+					"emitter_shape": 2,
+					"emitter_extents": [7.0, 0.5, 7.0],
+					"emitter_size": 1.0,
+					"particle_shape": 5,
+					"particle_size": 0.07,
+					"particle_size_curve": false,
+					"particle_rotation_speed": 0.0,
+					"direction": [0.0, -1.0, 0.0],
+					"initial_speed": 2.0,
+					"spread": 0.04,
+					"gravity": [0.0, -3.0, 0.0],
+					"flow_scale": 0.4,
+					"flow_speed": 0.2,
+					"turbulence": 0.5,
+					"drag": 0.1,
+					"flow_seed": 21,
+					"palette_enable_1": true, "palette_color_1": [0.68, 0.5, 0.54, 1.0],
+					"palette_enable_2": true, "palette_color_2": [0.55, 0.66, 0.6, 1.0],
+					"palette_enable_3": true, "palette_color_3": [0.55, 0.6, 0.7, 1.0],
+					"palette_enable_4": true, "palette_color_4": [0.72, 0.67, 0.55, 1.0],
+					"particle_brightness": 1.1
+				}
+			},
+			{
+				"type": "Influence",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"enabled": true,
+					"mode": 0,
+					"radius": 3.0,
+					"strength": 3.0,
+					"influence_color": [0.5, 0.6, 0.65, 1.0],
+					"show_visual": false,
+					"follow_mouse": true
+				}
+			}
+		],
+		"scene": {
+			"bg_color": [0.05, 0.05, 0.07, 1.0],
+			"bloom_enabled": true,
+			"bloom_intensity": 0.2
+		},
+		"camera": {
+			"target": [0.0, 0.0, 0.0],
+			"distance": 8.0
+		}
+	},
+
 	"Petal Storm": {
 		"version": 1,
 		"objects": [
@@ -266,8 +382,8 @@ const PRESETS: Dictionary = {
 			}
 		],
 		"camera": {
-			"target": [0.0, 2.6, 0.0],
-			"distance": 11.0
+			"target": [0.0, 0.0, 0.0],
+			"distance": 9.5
 		}
 	},
 
@@ -290,6 +406,8 @@ const PRESETS: Dictionary = {
 					"curvature_amount": 5.0,
 					"curvature_complexity": 7,
 					"shape_seed": 137,
+					"curl_amount": 0.6,
+					"curl_axis": 0,
 					"hole_amount": 0.4,
 					"hole_scale": 0.22,
 					"surface_roughness": 0.82,
@@ -317,8 +435,8 @@ const PRESETS: Dictionary = {
 			}
 		],
 		"camera": {
-			"target": [0.0, 0.3, 0.0],
-			"distance": 6.5
+			"target": [0.0, 0.0, 0.0],
+			"distance": 12.0
 		}
 	},
 
@@ -341,6 +459,8 @@ const PRESETS: Dictionary = {
 					"curvature_amount": 3.0,
 					"curvature_complexity": 5,
 					"shape_seed": 308,
+					"curl_amount": 0.65,
+					"curl_axis": 0,
 					"surface_roughness": 0.8,
 					"surface_metallic": 0.0,
 					"colormap": {"preset": 4, "offsets": [], "colors": []},
@@ -366,8 +486,8 @@ const PRESETS: Dictionary = {
 			}
 		],
 		"camera": {
-			"target": [0.0, 0.2, 0.0],
-			"distance": 7.5
+			"target": [0.0, 0.0, 0.0],
+			"distance": 12.0
 		}
 	},
 
@@ -391,6 +511,8 @@ const PRESETS: Dictionary = {
 					"curvature_amount": 2.2,
 					"curvature_complexity": 4,
 					"shape_seed": 512,
+					"curl_amount": 0.5,
+					"curl_axis": 0,
 					"surface_roughness": 0.85,
 					"surface_metallic": 0.0,
 					"colormap": {"preset": 3, "offsets": [], "colors": []},
@@ -431,6 +553,8 @@ const PRESETS: Dictionary = {
 					"curvature_amount": 2.8,
 					"curvature_complexity": 5,
 					"shape_seed": 921,
+					"curl_amount": 0.5,
+					"curl_axis": 0,
 					"surface_roughness": 0.85,
 					"surface_metallic": 0.0,
 					"colormap": {"preset": 3, "offsets": [], "colors": []},
@@ -456,8 +580,8 @@ const PRESETS: Dictionary = {
 			}
 		],
 		"camera": {
-			"target": [0.0, 1.2, 0.0],
-			"distance": 11.0
+			"target": [0.0, 0.0, 0.0],
+			"distance": 14.0
 		}
 	},
 
@@ -604,10 +728,21 @@ const PRESETS: Dictionary = {
 					"color_min": -2.5,
 					"color_max": 2.5,
 					"color_a": [0.0, 0.85, 0.45, 1.0],
-					"color_b": [0.75, 1.0, 0.35, 1.0]
+					"color_b": [0.75, 1.0, 0.35, 1.0],
+					"particle_brightness": 2.6
 				}
 			}
 		],
+		"scene": {
+			"background_mode": 3,
+			"bg_color": [0.0, 0.01, 0.03, 1.0],
+			"bg_color2": [0.1, 0.95, 0.45, 1.0],
+			"noise_scale": 1.0,
+			"noise_speed": 0.12,
+			"noise_contrast": 1.6,
+			"bloom_enabled": true,
+			"bloom_intensity": 0.9
+		},
 		"camera": {
 			"target": [0.0, 0.0, 0.0],
 			"distance": 9.0

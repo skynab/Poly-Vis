@@ -127,10 +127,12 @@ Curl (`curl_amount`, `curl_axis`): a deterministic roll (vs the random curvature
 lobes) that wraps the whole sheet around one planar axis into an open C / scroll.
 `_curl_offset()` treats the chosen axis as arc length around a cylinder of radius
 `2*extent / total` where `total = curl_amount * TAU * 0.92` (≤ ~331°, so the sweep
-stays under a full turn and leaves the C's mouth): one edge sits at the base and
-following the axis the surface rises, curls over the top, and circles back. It's an
-additive offset, so the crumple/fold rides along on top. `curl_axis` picks Z
-(front-back) or X (left-right). Draped Silk uses it for its C-shape.
+stays under a full turn and leaves the C's mouth): following the axis the surface
+rises, curls over the top, and circles back. The arc is centered on the circle's
+center (origin), so raising `curl_amount` tightens the C in place rather than
+launching the sheet upward (stable camera framing). It's an additive offset, so the
+crumple/fold rides along on top. `curl_axis` picks Z (front-back) or X
+(left-right). All four cloth presets use it for a significant curve.
 
 Holes (`hole_amount`, `hole_scale`): punches actual gaps through the sheet. During
 the triangle pass `_build_surface()` samples a per-quad hole noise field at each
@@ -268,6 +270,12 @@ particles with `particle_brightness > 1` bloom.
   a file browser that sets the path and switches to SKYBOX. Since SceneEnvironment
   is `RefCounted`, the `FileDialog` is parented to a host node passed to `bind()`
   by Main (`bind(env, self)`).
+- **AURORA** — animated aurora-borealis curtains (`aurora_sky.gdshader`, also
+  `BG_SKY` + realtime `Sky`) over `bg_color` (night sky), tinted by `bg_color2`
+  (dominant curtain color, shifting to blue higher and magenta at the ray tips).
+  Reuses `noise_scale` / `noise_speed` / `noise_contrast` as the aurora's
+  scale / shimmer / intensity. The Aurora preset uses it (black sky + green
+  curtains + bloom).
 
 The `Sky` and its two materials (noise `ShaderMaterial`, `PanoramaSkyMaterial`)
 are created lazily and reused across mode switches. `reset_defaults()` resets all
@@ -300,19 +308,23 @@ Skips `InfluenceObject` (which already draws its own radius sphere). Gated by an
 and UndoHistory. Full shortcut list in the script header comment.
 
 ### BuiltInPresets
-Const dictionary of CompositionIO-compatible scenes (Default, Neon Rain, Petal
-Storm, Draped Silk, Sculpted Drape, Glacier Drape, Dune Drape, Crystal Lattice,
-Lava Flow, Aurora, Void Sphere). Applied by the preset dropdown in the panel.
-Neon Rain is the only one that ships a `"scene"` block (dark room + bloom) and
-stacks three PolyParticles layers — palette-colored disc rain, a
-`follow_influence` spark fountain trailing the cursor, and downward Streak rain —
-plus a hidden follow-mouse influence. Draped Silk, Sculpted Drape, Glacier Drape,
+Const dictionary of CompositionIO-compatible scenes (Default, Neon Rain, Muted
+Rain, Petal Storm, Draped Silk, Sculpted Drape, Glacier Drape, Dune Drape, Crystal
+Lattice, Lava Flow, Aurora, Void Sphere). Applied by the preset dropdown in the
+panel. Neon Rain ships a `"scene"` block (dark room + bloom) and stacks three
+PolyParticles layers — palette-colored disc rain, a `follow_influence` spark
+fountain trailing the cursor, and downward Streak rain — plus a hidden
+follow-mouse influence. Muted Rain is a Neon Rain variant: the same three-layer
+structure but denser/finer (higher counts, smaller `particle_size`, more
+`flow_scale` detail) with a dusty desaturated palette and low brightness/bloom. Aurora also ships a `"scene"` block: a black night sky in
+AURORA background mode (green curtains) with bloom, behind its turbulent
+green-teal particle field. Draped Silk, Sculpted Drape, Glacier Drape,
 and Dune Drape are the PolyCloth showcases, each pairing a warm colormap with a
 contrasting `cool_color` for the two-tone facet split (Draped/Sculpted: pink +
 periwinkle, Glacier: teal + amber, Dune: purple-yellow + blue). Draped Silk,
 Glacier, and Dune are the calm variants — broad folds, low `fold`/`warp`, moderate
-`curvature_amount`. Draped Silk additionally uses `curl_amount` to roll its calm
-sheet into an open C shape. Dune Drape stacks two cloth sheets (the second `rotation`d ~80°
+`curvature_amount`. All four use `curl_amount` (0.5–0.85) to roll the sheet into a
+significant open C / scroll. Dune Drape stacks two cloth sheets (the second `rotation`d ~80°
 about X and offset up/back) so they cross at an angle for a layered composition.
 Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
 `curvature_amount` and fine `resolution` give the heavily-crumpled, ribbon-like

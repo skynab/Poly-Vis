@@ -96,7 +96,7 @@ The right-docked panel drives the whole app, top to bottom:
 - **Presets / Save / Load / Duplicate**.
 - **Capture / Record** with a frame-rate selector.
 - **Global modules** — camera, scene environment (background color / animated
-  noise / loaded skybox + bloom), HUD logo, and selection ring.
+  noise / loaded skybox / aurora sky + bloom), HUD logo, and selection ring.
 - **Per-object controls** for the currently selected object.
 
 The **⛶** button (or <kbd>F11</kbd>) collapses the panel to a corner chip and
@@ -112,6 +112,7 @@ Pick any of these from the **Presets…** dropdown:
 |---|---|
 | **Default** | A single displaced PolyMesh |
 | **Neon Rain** | Layered particle rain + spark fountain in a dark bloom-lit room |
+| **Muted Rain** | Neon Rain with finer, denser particles and a dusty desaturated palette |
 | **Petal Storm** | Animated, heavily displaced mesh |
 | **Draped Silk** | Calm two-tone cloth drape (pink + periwinkle) |
 | **Sculpted Drape** | Dramatic crumpled, flowing cloth with holes |
@@ -119,7 +120,7 @@ Pick any of these from the **Presets…** dropdown:
 | **Dune Drape** | Wide low cloth sheet (purple-yellow + blue) |
 | **Crystal Lattice** | Metallic wireframe-lattice mesh |
 | **Lava Flow** | Glowing posterized mesh + ember particles |
-| **Aurora** | Turbulent particle field |
+| **Aurora** | Turbulent green-teal particle field over an animated aurora night sky |
 | **Void Sphere** | Dark rim-lit mesh with a repel influence |
 
 ---
