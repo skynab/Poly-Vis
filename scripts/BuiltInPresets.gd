@@ -375,6 +375,7 @@ const PRESETS: Dictionary = {
 			{
 				"type": "PolyCloth",
 				"position": [0.0, 0.0, 0.0],
+				"rotation": [0.0, 0.0, 0.0],
 				"params": {
 					"extent": 8.0,
 					"resolution": 120,
@@ -410,11 +411,51 @@ const PRESETS: Dictionary = {
 					"anim_frequency": 0.5,
 					"anim_speed": 0.3
 				}
+			},
+			{
+				"type": "PolyCloth",
+				"position": [0.0, 1.5, -2.0],
+				"rotation": [80.0, 0.0, 0.0],
+				"params": {
+					"extent": 8.0,
+					"resolution": 120,
+					"amplitude": 3.0,
+					"amplitude_variance": 0.7,
+					"amplitude_variance_scale": 0.06,
+					"frequency": 0.12,
+					"warp": 1.3,
+					"fold": 0.45,
+					"noise_seed": 173,
+					"curvature_amount": 2.8,
+					"curvature_complexity": 5,
+					"shape_seed": 921,
+					"surface_roughness": 0.85,
+					"surface_metallic": 0.0,
+					"colormap": {"preset": 3, "offsets": [], "colors": []},
+					"color_source": 2,
+					"color_min": -1.0,
+					"color_max": 1.0,
+					"posterize": false,
+					"posterize_steps": 5,
+					"contrast": 1.15,
+					"brightness": 1.05,
+					"cool_color": [0.45, 0.55, 1.0, 1.0],
+					"cool_strength": 0.8,
+					"cool_dir": [0.15, 1.0, 0.3],
+					"rim_strength": 0.3,
+					"rim_power": 2.5,
+					"rim_color": [1.0, 1.0, 1.0, 1.0],
+					"translucency": 0.0,
+					"animate": true,
+					"anim_amplitude": 0.1,
+					"anim_frequency": 0.5,
+					"anim_speed": 0.3
+				}
 			}
 		],
 		"camera": {
-			"target": [0.0, 0.2, 0.0],
-			"distance": 8.5
+			"target": [0.0, 1.2, 0.0],
+			"distance": 11.0
 		}
 	},
 

@@ -212,12 +212,14 @@ stays visible in screenshots/recordings as a watermark. Schema-driven like
 SceneEnvironment; serialized under `"hud"`. `custom_path` is a `"string"` schema
 prop — it renders an editable text field and can also be set via the Import button.
 
-Drop shadow (`shadow_enabled`, `shadow_color`, `shadow_offset_x/y`): a second
-TextureRect (`_shadow`) added before the logo rect so it renders behind. Uses the
-same texture/size/stretch via `hud_shadow.gdshader`, which fills the logo's alpha
-silhouette with `shadow_color` (the shadow is the logo's SHAPE in that color, not
-a tint of its pixels), offset by `shadow_offset_*`. `shadow_color.a` controls
-shadow strength; `opacity` fades both rects.
+Drop shadow (`shadow_enabled`, `shadow_color`, `shadow_offset_x/y`, `shadow_blur`):
+a second TextureRect (`_shadow`) added before the logo rect so it renders behind.
+Uses the same texture/size/stretch via `hud_shadow.gdshader`, which fills the
+logo's alpha silhouette with `shadow_color` (the shadow is the logo's SHAPE in that
+color, not a tint of its pixels), offset by `shadow_offset_*`. `shadow_blur`
+Gaussian-blurs the silhouette alpha (radius in texels, `u_blur`; 0 = hard edge),
+clamped to the rect bounds so it bleeds into the image's transparent padding.
+`shadow_color.a` controls shadow strength; `opacity` fades both rects.
 
 NOTE: the enum is `LogoCorner`, not `Corner` — `Corner` is a Godot built-in enum
 and shadowing it is a parse error.
@@ -235,11 +237,30 @@ lacks its block, `reset_defaults()` runs first (white room / no logo / ring off)
 
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
-Main at startup via `bind()`. Exposes `bg_color`, `bloom_enabled`,
-`bloom_intensity` through `get_param_schema()` so they render in the panel
-(under the camera) and serialize under the `"scene"` key. `bg_color` also drives
-`ambient_light_color` (dark background → dark room). Bloom uses additive glow
-with a 0.7 HDR threshold, so particles with `particle_brightness > 1` bloom.
+Main at startup via `bind()`. Exposes the background + bloom through
+`get_param_schema()` so they render in the panel (under the camera) and serialize
+under the `"scene"` key. `bg_color` also drives `ambient_light_color` (dark
+background → dark room) in every mode, so object lighting stays predictable
+regardless of the backdrop. Bloom uses additive glow with a 0.7 HDR threshold, so
+particles with `particle_brightness > 1` bloom.
+
+`background_mode` (BackgroundMode enum) picks the backdrop:
+- **COLOR** — flat `bg_color` room (`Environment.BG_COLOR`), the classic look.
+- **NOISE** — an animated fractal-noise sky (`Environment.BG_SKY` + a `Sky` with
+  `background_noise.gdshader`) blending `bg_color` ↔ `bg_color2`, with
+  `noise_scale` / `noise_speed` / `noise_contrast`. The sky shader animates off
+  its own `TIME` (the `Sky` runs `PROCESS_MODE_REALTIME`), so no per-frame CPU push.
+- **SKYBOX** — a panorama image from `skybox_path` via a `PanoramaSkyMaterial`
+  (`PROCESS_MODE_QUALITY`). `_load_skybox()` mirrors HudLogo's external-image
+  handling (res:// / user:// through the loader, OS paths via
+  `Image.load_from_file`); an empty/invalid path falls back to COLOR so the
+  background is never a black void. `skybox_path` is a `string` schema prop
+  (editable text field).
+
+The `Sky` and its two materials (noise `ShaderMaterial`, `PanoramaSkyMaterial`)
+are created lazily and reused across mode switches. `reset_defaults()` resets all
+of the above (COLOR / white room / no sky / no bloom) so a composition with no
+`"scene"` block loads clean.
 
 ### UndoHistory
 Thin wrapper around Godot's built-in `UndoRedo`. `record_property(obj, prop,
@@ -278,7 +299,9 @@ and Dune Drape are the PolyCloth showcases, each pairing a warm colormap with a
 contrasting `cool_color` for the two-tone facet split (Draped/Sculpted: pink +
 periwinkle, Glacier: teal + amber, Dune: purple-yellow + blue). Draped Silk,
 Glacier, and Dune are the calm variants — broad folds, low `fold`/`warp`, moderate
-`curvature_amount`. Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
+`curvature_amount`. Dune Drape stacks two cloth sheets (the second `rotation`d ~80°
+about X and offset up/back) so they cross at an angle for a layered composition.
+Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
 `curvature_amount` and fine `resolution` give the heavily-crumpled, ribbon-like
 flowing form whose folds arc apart to reveal the white room through the gaps
 between them, plus `hole_amount` punched through the sheet for torn-fabric gaps.
@@ -356,6 +379,7 @@ entirely by the schema.
     {
       "type": "PolyMesh",
       "position": [0.0, 0.0, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
       "params": {
         "subdivisions": 3,
         "colormap": { "preset": 1, "offsets": [], "colors": [] },
@@ -364,13 +388,15 @@ entirely by the schema.
     }
   ],
   "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2 },
-  "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0, "shadow_enabled": true, "shadow_color": [0.0, 0.0, 0.0, 0.5], "shadow_offset_x": 8.0, "shadow_offset_y": 8.0 },
+  "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0, "shadow_enabled": true, "shadow_color": [0.0, 0.0, 0.0, 0.5], "shadow_offset_x": 8.0, "shadow_offset_y": 8.0, "shadow_blur": 0.0 },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
 The `"scene"` and `"hud"` blocks are optional; when absent on load the
 environment resets to the default white room (no bloom) and the logo turns off.
+Each object stores `"position"` and `"rotation"` (Euler degrees) alongside its
+schema `params`; `rotation` is optional (older comps without it load unrotated).
 Only parameters present in `get_param_schema()`
 are serialized. Missing keys
 on load keep the object's GDScript defaults. Colormap `preset` values map to

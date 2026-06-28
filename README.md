@@ -95,8 +95,8 @@ The right-docked panel drives the whole app, top to bottom:
 - **Object selector** + add (`+ Mesh`, `+ Pts`, `+ Cloth`, `+ Inf`) / remove.
 - **Presets / Save / Load / Duplicate**.
 - **Capture / Record** with a frame-rate selector.
-- **Global modules** — camera, scene environment (background + bloom), HUD logo,
-  and selection ring.
+- **Global modules** — camera, scene environment (background color / animated
+  noise / loaded skybox + bloom), HUD logo, and selection ring.
 - **Per-object controls** for the currently selected object.
 
 The **⛶** button (or <kbd>F11</kbd>) collapses the panel to a corner chip and

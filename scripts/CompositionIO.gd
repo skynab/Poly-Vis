@@ -54,7 +54,9 @@ static func serialize_object(obj: Node3D, type_label: String) -> Dictionary:
 					continue
 				var pn: String = prop["name"]
 				params[pn] = _encode(prop["type"], obj.get(pn))
-	return {"type": type_label, "position": _v3(obj.position), "params": params}
+	# Rotation is stored in degrees (Euler) for readable hand-authored presets.
+	return {"type": type_label, "position": _v3(obj.position),
+			"rotation": _v3(obj.rotation_degrees), "params": params}
 
 static func _encode(type: String, value: Variant) -> Variant:
 	match type:
@@ -125,6 +127,9 @@ static func create_object(data: Dictionary, manager: VisualizationManager) -> No
 	var p = data.get("position", null)
 	if p != null:
 		obj.position = Vector3(p[0], p[1], p[2])
+	var r = data.get("rotation", null)  # Euler degrees; absent on older comps
+	if r != null:
+		obj.rotation_degrees = Vector3(r[0], r[1], r[2])
 	_apply_params(obj, data.get("params", {}))
 	return obj
 

@@ -37,6 +37,10 @@ const SHADOW_SHADER := preload("res://shaders/hud_shadow.gdshader")
 @export var shadow_color: Color = Color(0.0, 0.0, 0.0, 0.5): set = set_shadow_color
 @export_range(-100.0, 100.0) var shadow_offset_x: float = 8.0: set = set_shadow_offset_x
 @export_range(-100.0, 100.0) var shadow_offset_y: float = 8.0: set = set_shadow_offset_y
+## Softens the shadow edge — Gaussian blur radius in texels (0 = hard silhouette).
+## The blur is clamped to the logo rect, so very large values are limited by the
+## image's transparent padding.
+@export_range(0.0, 50.0) var shadow_blur: float = 0.0: set = set_shadow_blur
 
 var _rect: TextureRect
 var _shadow: TextureRect
@@ -88,6 +92,7 @@ func _apply() -> void:
 		var m := _shadow.material as ShaderMaterial
 		if m:
 			m.set_shader_parameter("u_shadow_color", shadow_color)
+			m.set_shader_parameter("u_blur", shadow_blur)
 	_update_layout()
 
 func _resolve_texture() -> Texture2D:
@@ -212,6 +217,13 @@ func set_shadow_offset_y(v: float) -> void:
 	shadow_offset_y = v
 	_update_layout()
 
+func set_shadow_blur(v: float) -> void:
+	shadow_blur = v
+	if is_instance_valid(_shadow):
+		var m := _shadow.material as ShaderMaterial
+		if m:
+			m.set_shader_parameter("u_blur", v)
+
 ## Restore defaults (logo off) when a loaded composition has no "hud" block.
 func reset_defaults() -> void:
 	enabled = false
@@ -225,6 +237,7 @@ func reset_defaults() -> void:
 	shadow_color = Color(0.0, 0.0, 0.0, 0.5)
 	shadow_offset_x = 8.0
 	shadow_offset_y = 8.0
+	shadow_blur = 0.0
 
 func get_param_schema() -> Array:
 	return [{
@@ -242,6 +255,7 @@ func get_param_schema() -> Array:
 			{"name": "shadow_color", "type": "color"},
 			{"name": "shadow_offset_x", "type": "float", "min": -100.0, "max": 100.0, "step": 1.0},
 			{"name": "shadow_offset_y", "type": "float", "min": -100.0, "max": 100.0, "step": 1.0},
+			{"name": "shadow_blur", "type": "float", "min": 0.0, "max": 50.0, "step": 0.5},
 			{"name": "import_logo", "type": "action", "label": "Import Logo…",
 				"hint": "Choose any image file to display as the logo"},
 		]
