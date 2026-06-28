@@ -123,6 +123,15 @@ whole form serializes as one int. `randomize_shape()` (exposed as an `action`
 button) re-seeds `noise_seed` + `shape_seed` for a fresh unique shape and forces
 `curvature_amount` on if it was zero.
 
+Curl (`curl_amount`, `curl_axis`): a deterministic roll (vs the random curvature
+lobes) that wraps the whole sheet around one planar axis into an open C / scroll.
+`_curl_offset()` treats the chosen axis as arc length around a cylinder of radius
+`2*extent / total` where `total = curl_amount * TAU * 0.92` (≤ ~331°, so the sweep
+stays under a full turn and leaves the C's mouth): one edge sits at the base and
+following the axis the surface rises, curls over the top, and circles back. It's an
+additive offset, so the crumple/fold rides along on top. `curl_axis` picks Z
+(front-back) or X (left-right). Draped Silk uses it for its C-shape.
+
 Holes (`hole_amount`, `hole_scale`): punches actual gaps through the sheet. During
 the triangle pass `_build_surface()` samples a per-quad hole noise field at each
 quad center and drops the quad (skips both its triangles) when the sample exceeds
@@ -255,7 +264,10 @@ particles with `particle_brightness > 1` bloom.
   handling (res:// / user:// through the loader, OS paths via
   `Image.load_from_file`); an empty/invalid path falls back to COLOR so the
   background is never a black void. `skybox_path` is a `string` schema prop
-  (editable text field).
+  (editable text field), and the **Load Skybox…** action (`import_skybox()`) opens
+  a file browser that sets the path and switches to SKYBOX. Since SceneEnvironment
+  is `RefCounted`, the `FileDialog` is parented to a host node passed to `bind()`
+  by Main (`bind(env, self)`).
 
 The `Sky` and its two materials (noise `ShaderMaterial`, `PanoramaSkyMaterial`)
 are created lazily and reused across mode switches. `reset_defaults()` resets all
@@ -299,7 +311,8 @@ and Dune Drape are the PolyCloth showcases, each pairing a warm colormap with a
 contrasting `cool_color` for the two-tone facet split (Draped/Sculpted: pink +
 periwinkle, Glacier: teal + amber, Dune: purple-yellow + blue). Draped Silk,
 Glacier, and Dune are the calm variants — broad folds, low `fold`/`warp`, moderate
-`curvature_amount`. Dune Drape stacks two cloth sheets (the second `rotation`d ~80°
+`curvature_amount`. Draped Silk additionally uses `curl_amount` to roll its calm
+sheet into an open C shape. Dune Drape stacks two cloth sheets (the second `rotation`d ~80°
 about X and offset up/back) so they cross at an angle for a layered composition.
 Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
 `curvature_amount` and fine `resolution` give the heavily-crumpled, ribbon-like

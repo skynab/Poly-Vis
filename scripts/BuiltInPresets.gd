@@ -229,16 +229,18 @@ const PRESETS: Dictionary = {
 				"params": {
 					"extent": 7.0,
 					"resolution": 110,
-					"amplitude": 2.3,
+					"amplitude": 1.6,
 					"amplitude_variance": 0.5,
 					"amplitude_variance_scale": 0.08,
 					"frequency": 0.13,
 					"warp": 1.1,
 					"fold": 0.35,
 					"noise_seed": 3,
-					"curvature_amount": 2.4,
+					"curvature_amount": 0.5,
 					"curvature_complexity": 4,
 					"shape_seed": 41,
+					"curl_amount": 0.85,
+					"curl_axis": 0,
 					"surface_roughness": 0.85,
 					"surface_metallic": 0.0,
 					"colormap": {"preset": 2, "offsets": [], "colors": []},
@@ -264,8 +266,8 @@ const PRESETS: Dictionary = {
 			}
 		],
 		"camera": {
-			"target": [0.0, 0.3, 0.0],
-			"distance": 7.0
+			"target": [0.0, 2.6, 0.0],
+			"distance": 11.0
 		}
 	},
 

@@ -52,7 +52,7 @@ func _ready() -> void:
 	# Scene environment wrapper — schema-driven bg color + bloom, serialized
 	# alongside the camera so presets can ship a dark room for neon visuals.
 	scene_env = SceneEnvironment.new()
-	scene_env.bind(world_env.environment)
+	scene_env.bind(world_env.environment, self)
 
 	# HUD logo overlay — its own CanvasLayer (kept visible during capture, so the
 	# logo watermarks screenshots/recordings). Added to Main, not $UI.

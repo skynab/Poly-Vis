@@ -45,11 +45,16 @@ var _sky: Sky
 var _noise_mat: ShaderMaterial
 var _pano_mat: PanoramaSkyMaterial
 var _skybox_loaded_path: String = ""  # cache so _apply() doesn't reload from disk
+var _host: Node          # scene-tree node that hosts the skybox FileDialog
+var _file_dlg: FileDialog
 
 ## Adopt an existing Environment, syncing our props FROM it so the authored
-## scene defaults (white background, glow off) are preserved on startup.
-func bind(e: Environment) -> void:
+## scene defaults (white background, glow off) are preserved on startup. `host` is
+## a scene-tree node used to parent the skybox file-browser dialog (we are
+## RefCounted and can't add it to the tree ourselves).
+func bind(e: Environment, host: Node = null) -> void:
 	env = e
+	_host = host
 	if env:
 		bg_color = env.background_color
 		bloom_enabled = env.glow_enabled
@@ -189,6 +194,28 @@ func _load_skybox() -> bool:
 	_skybox_loaded_path = skybox_path
 	return true
 
+## Action button: open a file browser to pick a panorama image, then switch the
+## background to SKYBOX. Needs a host node (set in bind) to parent the dialog.
+func import_skybox() -> void:
+	if _host == null or not _host.is_inside_tree():
+		return
+	if not is_instance_valid(_file_dlg):
+		_file_dlg = FileDialog.new()
+		_file_dlg.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+		_file_dlg.access = FileDialog.ACCESS_FILESYSTEM
+		_file_dlg.filters = PackedStringArray([
+			"*.png, *.jpg, *.jpeg, *.webp, *.bmp, *.tga, *.hdr, *.exr ; Panorama Images"])
+		_file_dlg.title = "Load Skybox Panorama"
+		_file_dlg.size = Vector2i(640, 460)
+		_file_dlg.file_selected.connect(_on_skybox_picked)
+		_host.add_child(_file_dlg)
+	_file_dlg.popup_centered()
+
+func _on_skybox_picked(path: String) -> void:
+	# Setters each run _apply(); the mode switch is what triggers the load.
+	skybox_path = path
+	background_mode = BackgroundMode.SKYBOX
+
 func get_param_schema() -> Array:
 	return [{
 		"title": "Scene",
@@ -200,6 +227,8 @@ func get_param_schema() -> Array:
 			{"name": "noise_speed", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01},
 			{"name": "noise_contrast", "type": "float", "min": 0.2, "max": 4.0, "step": 0.05},
 			{"name": "skybox_path", "type": "string", "hint": "Panorama image path (Skybox mode)"},
+			{"name": "import_skybox", "type": "action", "label": "Load Skybox…",
+				"hint": "Browse for a panorama image and switch to Skybox mode"},
 			{"name": "bloom_enabled", "type": "bool"},
 			{"name": "bloom_intensity", "type": "float", "min": 0.0, "max": 8.0, "step": 0.05},
 		]

@@ -12,6 +12,8 @@ class_name PolyCloth
 ## Value driving the colormap lookup. NORMAL gives the pink-vs-periwinkle facet
 ## split; FOLD/NOISE expose the deformation fields baked into UV2.
 enum ColorSource { WORLD_HEIGHT, DISTANCE, NORMAL, FOLD, NOISE }
+## Which planar axis the C-curl rolls along (see curl_amount).
+enum CurlAxis { Z, X }
 
 const CLOTH_SHADER := preload("res://shaders/polycloth.gdshader")
 
@@ -43,6 +45,14 @@ const CLOTH_SHADER := preload("res://shaders/polycloth.gdshader")
 @export_range(1, 16) var curvature_complexity: int = 3: set = set_curvature_complexity
 ## Seeds the random curvature. Each value yields a unique, reproducible shape.
 @export var shape_seed: int = 0: set = set_shape_seed
+
+@export_group("Curl")
+## Rolls the whole sheet around one planar axis into an open C / scroll: starting
+## from one edge it rises, curls over the top, and circles back down the far side.
+## 0 == no curl; ~0.8 reads as a clear C; 1.0 nearly closes the loop.
+@export_range(0.0, 1.0) var curl_amount: float = 0.0: set = set_curl_amount
+## Planar axis the sheet rolls along — Z curls front-to-back, X curls left-to-right.
+@export var curl_axis: CurlAxis = CurlAxis.Z: set = set_curl_axis
 
 @export_group("Holes")
 ## Punches holes through the sheet — roughly the fraction of the surface dropped
@@ -169,6 +179,7 @@ func _build_surface() -> void:
 			var idx := gz * n + gx
 			var p := Vector3(x + fx, hn * local_amp, z + fz)
 			p += _curvature_offset(lobes, x / extent, z / extent)
+			p += _curl_offset(x, z)
 			pts[idx] = p
 			aux[idx] = Vector2(hn, sqrt(fx * fx + fz * fz))
 
@@ -240,6 +251,24 @@ func _curvature_offset(lobes: Array, u: float, v: float) -> Vector3:
 		var w := sin(u * PI * f.x + ph.x) * cos(v * PI * f.y + ph.y)
 		d += (lobe["axis"] as Vector3) * (w * float(lobe["amp"]))
 	return d * curvature_amount
+
+## Offset that maps a flat point onto a circular arc, rolling the sheet into a C.
+## The chosen axis is treated as arc length around a cylinder: one edge sits at the
+## base, and following the axis the surface sweeps through `total` radians — rising,
+## curling over the top, and circling back so a sub-360° sweep leaves the C's mouth.
+## Returned as an additive offset (the crumple/fold rides along on top).
+func _curl_offset(x: float, z: float) -> Vector3:
+	if curl_amount <= 0.0001:
+		return Vector3.ZERO
+	var coord := z if curl_axis == CurlAxis.Z else x
+	var total := curl_amount * TAU * 0.92          # up to ~331° — keeps the C open
+	var radius := (2.0 * extent) / total           # arc length = sheet length
+	var ang := ((coord + extent) / (2.0 * extent)) * total  # 0..total across the sheet
+	var along := radius * sin(ang) - coord         # remap flat coord onto the arc
+	var up := radius * (1.0 - cos(ang))            # lift toward the top of the circle
+	if curl_axis == CurlAxis.Z:
+		return Vector3(0.0, up, along)
+	return Vector3(along, up, 0.0)
 
 ## Generate a fresh unique shape: new crumple + curvature seeds. Ensures the
 ## warp is actually visible by giving curvature_amount a value if it was off, and
@@ -331,6 +360,14 @@ func set_curvature_complexity(v: int) -> void:
 
 func set_shape_seed(v: int) -> void:
 	shape_seed = v
+	rebuild()
+
+func set_curl_amount(v: float) -> void:
+	curl_amount = v
+	rebuild()
+
+func set_curl_axis(v: CurlAxis) -> void:
+	curl_axis = v
 	rebuild()
 
 func set_hole_amount(v: float) -> void:
@@ -463,6 +500,10 @@ func get_param_schema() -> Array:
 			{"name": "shape_seed", "type": "int", "min": 0, "max": 9999, "step": 1},
 			{"name": "randomize_shape", "type": "action", "label": "Randomize Shape",
 				"hint": "Generate a unique curvature + crumple from new random seeds"},
+		]},
+		{"title": "Curl", "props": [
+			{"name": "curl_amount", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+			{"name": "curl_axis", "type": "enum", "options": ["Z (front-back)", "X (left-right)"]},
 		]},
 		{"title": "Holes", "props": [
 			{"name": "hole_amount", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
