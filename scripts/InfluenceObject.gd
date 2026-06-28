@@ -35,6 +35,10 @@ enum Mode { ATTRACT, REPEL }
 ## influence in screen space — depth is locked to the view. See
 ## InfluenceController._project_to_view.
 @export var project_to_view: bool = false
+## When true the streamed position is mapped through the LED wall (WallConfig):
+## physical metres → wall pixel → view plane, so the influence lines up with the
+## object's real position on the wall. Takes priority over project_to_view.
+@export var map_to_wall: bool = false
 
 @export_subgroup("Connection")
 ## NatNet server (Motive host) IP. Applied to the OptiTrack autoload by
@@ -171,6 +175,8 @@ func get_param_schema() -> Array:
 			{"name": "track_position_offset", "type": "vector3"},
 			{"name": "project_to_view", "type": "bool",
 				"hint": "Lock the tracked position to a projection onto the current view"},
+			{"name": "map_to_wall", "type": "bool",
+				"hint": "Map the tracked position through the LED wall (see LED Wall section)"},
 			{"name": "optitrack_server_ip", "type": "string", "hint": "Motive host IP"},
 			{"name": "optitrack_client_ip", "type": "string", "hint": "Local interface IP"},
 			{"name": "optitrack_multicast", "type": "bool", "hint": "On = multicast, off = unicast"},

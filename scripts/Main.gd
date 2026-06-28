@@ -18,6 +18,7 @@ var gizmo: SelectionGizmo
 var input_mgr: InputManager
 var scene_env: SceneEnvironment
 var hud_logo: HudLogo
+var wall: WallConfig
 var _fps_label: Label
 
 func _ready() -> void:
@@ -60,8 +61,11 @@ func _ready() -> void:
 	hud_logo.name = "HudLogo"
 	add_child(hud_logo)
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo)
-	influence.setup(manager, camera)
+	# LED wall description — physical size + resolution for real-world mapping.
+	wall = WallConfig.new()
+
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall)
+	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 
 func _process(_delta: float) -> void:

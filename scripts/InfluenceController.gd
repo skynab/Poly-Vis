@@ -20,12 +20,14 @@ signal proximity_exited(influence: InfluenceObject, target: Node3D)
 
 var _manager: VisualizationManager
 var _camera: Camera3D
+var _wall: Object                 # WallConfig — physical→screen mapping for tracking
 var _dragging: bool = false
 var _proximity: Dictionary = {}   # "infl_id:target_id" -> bool
 
-func setup(manager: VisualizationManager, camera: Camera3D) -> void:
+func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null) -> void:
 	_manager = manager
 	_camera = camera
+	_wall = wall
 	if not proximity_entered.is_connected(_on_proximity_entered):
 		proximity_entered.connect(_on_proximity_entered)
 	set_process(true)
@@ -66,11 +68,36 @@ func _optitrack_pos(infl: InfluenceObject) -> Vector3:
 		return infl.global_position
 	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
 		return infl.global_position
-	var p: Vector3 = ot.call("get_rigid_body_pos", infl.rigid_body_asset_id)
-	p += infl.track_position_offset
+	var raw: Vector3 = ot.call("get_rigid_body_pos", infl.rigid_body_asset_id)
+	# Wall mapping: place the influence at the object's real spot on the rendered
+	# wall (physical metres → screen → view plane). Takes priority over the simpler
+	# view projection, and ignores the per-influence offset (the wall origin is the
+	# reference instead).
+	if infl.map_to_wall and _wall != null:
+		return _wall_to_view(raw)
+	var p := raw + infl.track_position_offset
 	if infl.project_to_view:
 		p = _project_to_view(p)
 	return p
+
+## Map a physical position (metres) onto the rendered wall: WallConfig converts it
+## to a normalized screen coord, which we unproject onto the camera's view plane
+## (through the origin). So the LED-wall pixel the object is in front of lines up
+## with where the influence acts on the visual.
+func _wall_to_view(world_metres: Vector3) -> Vector3:
+	if _camera == null:
+		return world_metres
+	var vp := get_viewport()
+	if vp == null:
+		return world_metres
+	var uv: Vector2 = _wall.physical_to_uv(world_metres)
+	var screen := uv * vp.get_visible_rect().size
+	var origin := _camera.project_ray_origin(screen)
+	var dir := _camera.project_ray_normal(screen)
+	var n := -_camera.global_transform.basis.z
+	var plane := Plane(n, 0.0)  # camera-facing plane through the world origin
+	var hit = plane.intersects_ray(origin, dir)
+	return hit if hit != null else world_metres
 
 ## Flatten a world point onto the plane the camera is looking at (a camera-facing
 ## plane through the world origin), keeping the point's on-screen location. Used by

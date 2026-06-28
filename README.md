@@ -96,7 +96,8 @@ The right-docked panel drives the whole app, top to bottom:
 - **Presets / Save / Load / Duplicate**.
 - **Capture / Record** with a frame-rate selector.
 - **Global modules** — camera, scene environment (background color / animated
-  noise / loaded skybox / aurora sky + bloom), HUD logo, and selection ring.
+  noise / loaded skybox / aurora sky + bloom), HUD logo, selection ring, and LED
+  wall (physical size + resolution for real-world mapping).
 - **Per-object controls** for the currently selected object.
 
 The **⛶** button (or <kbd>F11</kbd>) collapses the panel to a corner chip and
@@ -151,11 +152,29 @@ Motive over NatNet. In the influence's **OptiTrack** panel section:
 3. Enable **Track Rigid Body** and set the **Rigid Body Asset ID** to a streamed
    asset.
 4. Optionally enable **Project to View** to lock the tracked position to the
-   current camera view (screen-space with fixed depth).
+   current camera view (screen-space with fixed depth), or **Map to Wall** to map
+   the object's physical position onto the LED wall (see below).
 
 Connection settings save and load with the composition. The editor's OptiTrack
 dock and `addons/optitrack_plugin/optitrack_settings.tres` are an alternative
 place to configure the connection.
+
+### LED wall mapping
+
+For installations that render onto an LED wall with a tracked object moving in
+front of it, the panel's **LED Wall** section describes the wall so real-world
+positions map correctly:
+
+- **Physical width / height** — the wall's real size in metres.
+- **Pixel width / height** — the wall's native resolution. **Apply Resolution to
+  Window** resizes the app window to match (combine with **F11** fullscreen on the
+  wall's display for a borderless 1:1 output).
+- **Origin** — the wall's physical centre in the OptiTrack coordinate space.
+
+With an influence set to **Track Rigid Body** + **Map to Wall**, the tracked
+object's metres are converted to a wall pixel and then onto the view, so the
+influence acts exactly where the object is in front of the wall. The wall settings
+save and load with the composition.
 
 ---
 

@@ -209,8 +209,8 @@ it stores no value and CompositionIO skips it during (de)serialization.
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
 → capture/record → status line → hint bar → camera → scene → HUD logo → selection
-ring → object sections. Camera/scene/hud/gizmo are global modules in a static
-area; managed-object controls render in `_object_host` below them.
+ring → LED wall → object sections. Camera/scene/hud/gizmo/wall are global modules
+in a static area; managed-object controls render in `_object_host` below them.
 
 ### HudLogo
 `CanvasLayer` overlay showing a logo over the front of the view. Bundles the
@@ -237,14 +237,16 @@ and shadowing it is a parse error.
 
 ### CompositionIO
 Stateless serializer. `serialize(manager, camera, scene=null, hud=null,
-gizmo=null)` → Dictionary; `apply(data, manager, camera, scene=null, hud=null,
-gizmo=null)` → rebuilds from Dictionary. File I/O: `save_json` / `load_json`.
-Encoding: colors → `[r,g,b,a]`, Vector3 → `[x,y,z]`, enums → int, strings →
-as-is, colormaps → `{"preset": N, "offsets": [], "colors": []}`. Camera, `scene`
-(SceneEnvironment), `hud` (HudLogo), and `gizmo` (SelectionGizmo) are each
-serialized by walking their `get_param_schema()` via the shared `_schema_to_dict`
-/ `_dict_to_schema` helpers. On load, if a module is supplied but the composition
-lacks its block, `reset_defaults()` runs first (white room / no logo / ring off).
+gizmo=null, wall=null)` → Dictionary; `apply(data, manager, camera, scene=null,
+hud=null, gizmo=null, wall=null)` → rebuilds from Dictionary. File I/O:
+`save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`, Vector3 → `[x,y,z]`,
+enums → int, strings → as-is, colormaps → `{"preset": N, "offsets": [], "colors":
+[]}`. Camera, `scene` (SceneEnvironment), `hud` (HudLogo), `gizmo`
+(SelectionGizmo), and `wall` (WallConfig) are each serialized by walking their
+`get_param_schema()` via the shared `_schema_to_dict` / `_dict_to_schema` helpers.
+Each managed object also stores `position` + `rotation` (Euler degrees). On load,
+if a module is supplied but the composition lacks its block, `reset_defaults()`
+runs first (white room / no logo / ring off / default wall).
 
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
@@ -302,6 +304,19 @@ Skips `InfluenceObject` (which already draws its own radius sphere). Gated by an
 (like SceneEnvironment/HudLogo) serialized under `"gizmo"`, so loading any preset
 (which carries no `"gizmo"` block) resets it off. Toggle it on via the panel's
 "Selection Ring" section.
+
+### WallConfig
+`RefCounted` schema-driven global module (like SceneEnvironment) describing the LED
+wall the app renders onto, created by Main and serialized under `"wall"`. Holds the
+wall's physical size (`physical_width`/`physical_height`, metres), pixel
+`pixel_width`/`pixel_height` (`int_field`s), and physical `origin` (wall centre in
+OptiTrack metres). `apply_resolution()` (an `action`) resizes the window to the
+pixel resolution so the render maps 1:1 to the panels. `physical_to_uv(metres)`
+converts a real-world position to a normalized screen coord (X→horizontal,
+Y→vertical) — used by `InfluenceController._wall_to_view` to place a `map_to_wall`
+influence at the tracked object's real spot on the rendered wall (physical metres →
+screen UV → unproject onto the view plane). Like the other global modules, presets
+carry no `"wall"` block, so loading one runs `reset_defaults()` (1920×1080, 3×2 m).
 
 ### InputManager
 `_unhandled_key_input` handler. Delegates to VisualizationManager, panel, camera,
@@ -414,12 +429,14 @@ entirely by the schema.
   ],
   "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2 },
   "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0, "shadow_enabled": true, "shadow_color": [0.0, 0.0, 0.0, 0.5], "shadow_offset_x": 8.0, "shadow_offset_y": 8.0, "shadow_blur": 0.0 },
+  "wall": { "physical_width": 3.0, "physical_height": 2.0, "pixel_width": 1920, "pixel_height": 1080, "origin": [0.0, 0.0, 0.0] },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-The `"scene"` and `"hud"` blocks are optional; when absent on load the
-environment resets to the default white room (no bloom) and the logo turns off.
+The `"scene"`, `"hud"`, and `"wall"` blocks are optional; when absent on load the
+environment resets to the default white room (no bloom), the logo turns off, and
+the wall resets to its default dimensions.
 Each object stores `"position"` and `"rotation"` (Euler degrees) alongside its
 schema `params`; `rotation` is optional (older comps without it load unrotated).
 Only parameters present in `get_param_schema()`
@@ -462,8 +479,12 @@ connection settings too, so they save/load with the composition: `optitrack_serv
 (SpinBox) control for exact entry. `project_to_view = true` flattens the streamed
 position onto a camera-facing plane through the world origin
 (`InfluenceController._project_to_view`), so the rigid body drives the influence in
-screen space with locked depth. The editor's OptiTrack dock + `optitrack_settings.tres`
-remain the other place to configure the connection.
+screen space with locked depth. `map_to_wall = true` (takes priority over
+`project_to_view`) instead maps the physical position through `WallConfig` — real
+metres → wall pixel → view plane (`_wall_to_view`) — so the influence lines up with
+the object's actual position in front of the LED wall; calibrate via the panel's
+**LED Wall** section (physical size, resolution, origin). The editor's OptiTrack
+dock + `optitrack_settings.tres` remain the other place to configure the connection.
 To use: open in the editor, set the influence's IPs / transport and click Connect /
 Reconnect (or use the OptiTrack dock), set `rigid_body_asset_id` to a streamed
 asset, run.

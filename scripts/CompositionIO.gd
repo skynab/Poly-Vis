@@ -9,7 +9,8 @@ class_name CompositionIO
 
 # --- serialize -------------------------------------------------------------
 static func serialize(manager: VisualizationManager, camera: Node,
-		scene: Object = null, hud: Object = null, gizmo: Object = null) -> Dictionary:
+		scene: Object = null, hud: Object = null, gizmo: Object = null,
+		wall: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
@@ -20,6 +21,8 @@ static func serialize(manager: VisualizationManager, camera: Node,
 		result["hud"] = _schema_to_dict(hud)
 	if gizmo and gizmo.has_method("get_param_schema"):
 		result["gizmo"] = _schema_to_dict(gizmo)
+	if wall and wall.has_method("get_param_schema"):
+		result["wall"] = _schema_to_dict(wall)
 	return result
 
 ## Encode every schema property of a single object into a flat Dictionary.
@@ -86,7 +89,8 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 
 # --- deserialize -----------------------------------------------------------
 static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
-		scene: Object = null, hud: Object = null, gizmo: Object = null) -> void:
+		scene: Object = null, hud: Object = null, gizmo: Object = null,
+		wall: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
@@ -108,6 +112,12 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		if gizmo.has_method("reset_defaults"):
 			gizmo.reset_defaults()
 		_dict_to_schema(gizmo, data.get("gizmo", {}))
+	if wall:
+		# Wall config is installation hardware, not part of a visual — presets carry
+		# no "wall" block, so loading one resets to the default wall dimensions.
+		if wall.has_method("reset_defaults"):
+			wall.reset_defaults()
+		_dict_to_schema(wall, data.get("wall", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 
