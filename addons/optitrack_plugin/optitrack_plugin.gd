@@ -27,11 +27,17 @@ func _disable_plugin() -> void:
 	# Remove autoloads here.
 	remove_autoload_singleton(AUTOLOAD_NAME)
 
+var _export_plugin: EditorExportPlugin
+
+
 func _enter_tree() -> void:
-	# Initialization of the plugin goes here.
-	pass
+	# Force-bundle NatNetLib.dll with Windows exports (Godot's GDExtension
+	# dependency copy drops it, breaking OptiTrack in exported builds).
+	_export_plugin = preload("res://addons/optitrack_plugin/natnet_export_plugin.gd").new()
+	add_export_plugin(_export_plugin)
 
 
 func _exit_tree() -> void:
-	# Clean-up of the plugin goes here.
-	pass
+	if _export_plugin:
+		remove_export_plugin(_export_plugin)
+		_export_plugin = null
