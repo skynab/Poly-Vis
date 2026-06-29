@@ -69,6 +69,12 @@ func _optitrack_pos(infl: InfluenceObject) -> Vector3:
 	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
 		return infl.global_position
 	var raw: Vector3 = ot.call("get_rigid_body_pos", infl.rigid_body_asset_id)
+	# Mirror the streamed axes if Motive's X / Z run opposite the view, so motion
+	# lines up with the wall. Applied to the raw position before offset / mapping.
+	if infl.invert_x:
+		raw.x = -raw.x
+	if infl.invert_z:
+		raw.z = -raw.z
 	# Wall mapping: place the influence at the object's real spot on the rendered
 	# wall (physical metres → screen → view plane). Takes priority over the simpler
 	# view projection, and ignores the per-influence offset (the wall origin is the

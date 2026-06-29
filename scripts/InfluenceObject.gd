@@ -39,6 +39,12 @@ enum Mode { ATTRACT, REPEL }
 ## physical metres → wall pixel → view plane, so the influence lines up with the
 ## object's real position on the wall. Takes priority over project_to_view.
 @export var map_to_wall: bool = false
+## Negate the streamed X / Z axis independently. Flips left/right (X) or front/back
+## (Z) so the rigid body's motion lines up with the LED wall when Motive's axes are
+## mirrored relative to the view. Applied to the raw position before offset / wall
+## mapping (see InfluenceController._optitrack_pos).
+@export var invert_x: bool = false
+@export var invert_z: bool = false
 
 @export_subgroup("Connection")
 ## NatNet server (Motive host) IP. Applied to the OptiTrack autoload by
@@ -218,6 +224,10 @@ func get_param_schema() -> Array:
 				"hint": "Lock the tracked position to a projection onto the current view"},
 			{"name": "map_to_wall", "type": "bool",
 				"hint": "Map the tracked position through the LED wall (see LED Wall section)"},
+			{"name": "invert_x", "type": "bool",
+				"hint": "Negate the streamed X axis (flip left/right) for wall alignment"},
+			{"name": "invert_z", "type": "bool",
+				"hint": "Negate the streamed Z axis (flip front/back) for wall alignment"},
 			{"name": "optitrack_server_ip", "type": "string", "hint": "Motive host IP"},
 			{"name": "optitrack_client_ip", "type": "string", "hint": "Local interface IP"},
 			{"name": "optitrack_multicast", "type": "bool", "hint": "On = multicast, off = unicast"},
