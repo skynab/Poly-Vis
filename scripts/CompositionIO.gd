@@ -31,8 +31,8 @@ static func _schema_to_dict(obj: Object) -> Dictionary:
 	if obj and obj.has_method("get_param_schema"):
 		for section in obj.get_param_schema():
 			for prop in section["props"]:
-				if prop["type"] == "action":
-					continue  # buttons carry no value to serialize
+				if prop["type"] == "action" or prop["type"] == "status":
+					continue  # buttons / status readouts carry no value to serialize
 				d[prop["name"]] = _encode(prop["type"], obj.get(prop["name"]))
 	return d
 
@@ -42,7 +42,7 @@ static func _dict_to_schema(obj: Object, d: Dictionary) -> void:
 		return
 	for section in obj.get_param_schema():
 		for prop in section["props"]:
-			if prop["type"] == "action":
+			if prop["type"] == "action" or prop["type"] == "status":
 				continue
 			var pn: String = prop["name"]
 			if d.has(pn):
@@ -53,7 +53,7 @@ static func serialize_object(obj: Node3D, type_label: String) -> Dictionary:
 	if obj.has_method("get_param_schema"):
 		for section in obj.get_param_schema():
 			for prop in section["props"]:
-				if prop["type"] == "action":
+				if prop["type"] == "action" or prop["type"] == "status":
 					continue
 				var pn: String = prop["name"]
 				params[pn] = _encode(prop["type"], obj.get(pn))
@@ -148,7 +148,7 @@ static func _apply_params(obj: Node3D, params: Dictionary) -> void:
 		return
 	for section in obj.get_param_schema():
 		for prop in section["props"]:
-			if prop["type"] == "action":
+			if prop["type"] == "action" or prop["type"] == "status":
 				continue
 			var pn: String = prop["name"]
 			if params.has(pn):

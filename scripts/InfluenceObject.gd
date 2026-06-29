@@ -134,6 +134,42 @@ func set_influence_color(v: Color) -> void:
 	influence_color = v
 	_update_visual()
 
+## Human-readable OptiTrack connection state, surfaced read-only in the panel to
+## help debug rigid-body tracking. Three states:
+##   "Not Connected"        — no OptiTrack autoload (plugin absent / non-Windows)
+##                            or Motive isn't connected.
+##   "Connected"            — Motive is streaming, but this influence's
+##                            rigid_body_asset_id isn't among the streamed assets
+##                            (wrong ID, or the rigid body isn't tracked right now).
+##   "Rigid Body Connected" — the asset ID is live; the streamed name is appended.
+## Fully guarded so it's a safe no-op without the plugin.
+func connection_status() -> String:
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null or not ot.has_method("is_connected_to_motive"):
+		return "Not Connected (plugin unavailable)"
+	if not ot.call("is_connected_to_motive"):
+		return "Not Connected"
+	# Connected to Motive — is this influence's rigid body actually streaming?
+	if ot.has_method("get_rigid_body_assets"):
+		var assets: Dictionary = ot.call("get_rigid_body_assets")
+		if assets.has(rigid_body_asset_id) and str(assets[rigid_body_asset_id]) != "Unassigned":
+			return "Rigid Body Connected — %s" % str(assets[rigid_body_asset_id])
+		return "Connected (asset %d not found)" % rigid_body_asset_id
+	return "Connected"
+
+## Live streamed position of this influence's rigid body, surfaced read-only in the
+## panel beneath the connection status so you can confirm data is actually moving
+## (not just that the asset is listed). Returns "—" when there's nothing to show.
+## Guarded like connection_status() — safe with the plugin absent.
+func rigid_body_position_status() -> String:
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null or not ot.has_method("get_rigid_body_pos"):
+		return "—"
+	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
+		return "—"
+	var p: Vector3 = ot.call("get_rigid_body_pos", rigid_body_asset_id)
+	return "(%.3f, %.3f, %.3f)" % [p.x, p.y, p.z]
+
 ## Push the connection settings to the OptiTrack autoload and (re)connect. Safe to
 ## call with the plugin absent / autoload missing — every call is guarded, so it's
 ## simply a no-op off Windows or without Motive. Invoked by the panel's action
@@ -169,6 +205,11 @@ func get_param_schema() -> Array:
 	}, {
 		"title": "OptiTrack",
 		"props": [
+			{"name": "connection_status", "type": "status", "label": "Status",
+				"hint": "Live OptiTrack connection / rigid-body tracking state"},
+			{"name": "rigid_body_position_status", "type": "status", "label": "Position",
+				"interval": 0.1,
+				"hint": "Live streamed position of the rigid body (Godot space)"},
 			{"name": "track_rigid_body", "type": "bool"},
 			{"name": "rigid_body_asset_id", "type": "int_field", "min": 0, "max": 9999, "step": 1,
 				"hint": "Motive asset ID of the rigid body to follow"},

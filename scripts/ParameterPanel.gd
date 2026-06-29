@@ -411,6 +411,7 @@ func _add_control(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 		"vector3":        _add_vector3(body, obj, prop)
 		"colormap_preset": _add_colormap(body, obj, prop)
 		"action":         _add_action(body, obj, prop)
+		"status":         _add_status(body, obj, prop)
 
 func _row(body: VBoxContainer, label_text: String, tip: String = "") -> HBoxContainer:
 	var row := HBoxContainer.new()
@@ -443,6 +444,28 @@ func _add_action(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 		if _manager and obj in _manager.objects:
 			show_object(obj))
 	body.add_child(btn)
+
+## Read-only live status readout. Calls the named method on the object for its
+## current string and re-polls a few times a second so a connection that comes up
+## (or drops) while the panel is open updates without reselecting. Carries no
+## stored value — CompositionIO skips "status" props like it does "action".
+func _add_status(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
+	var method: String = prop["name"]
+	var row := _row(body, prop.get("label", "Status"), prop.get("hint", ""))
+	var value := Label.new()
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	value.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	row.add_child(value)
+	var refresh := func():
+		if is_instance_valid(obj) and obj.has_method(method):
+			value.text = str(obj.call(method))
+	refresh.call()
+	# Poll on a timer parented to the label, so it's freed when the controls rebuild.
+	var timer := Timer.new()
+	timer.wait_time = prop.get("interval", 0.5)
+	timer.autostart = true
+	timer.timeout.connect(func(): refresh.call())
+	value.add_child(timer)
 
 func _add_number(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var pname: String = prop["name"]
