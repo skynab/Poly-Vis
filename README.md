@@ -167,8 +167,8 @@ positions map correctly:
 
 - **Physical width / height** — the wall's real size in metres.
 - **Pixel width / height** — the wall's native resolution. **Apply Resolution to
-  Window** resizes the app window to match (combine with **F11** fullscreen on the
-  wall's display for a borderless 1:1 output).
+  Window** resizes the app window to match. **Fit to Current Monitor** instead
+  fills whichever monitor the window is on (borderless fullscreen, rendered 1:1).
 - **Origin** — the wall's physical centre in the OptiTrack coordinate space.
 
 With an influence set to **Track Rigid Body** + **Map to Wall**, the tracked

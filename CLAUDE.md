@@ -311,7 +311,14 @@ wall the app renders onto, created by Main and serialized under `"wall"`. Holds 
 wall's physical size (`physical_width`/`physical_height`, metres), pixel
 `pixel_width`/`pixel_height` (`int_field`s), and physical `origin` (wall centre in
 OptiTrack metres). `apply_resolution()` (an `action`) resizes the window to the
-pixel resolution so the render maps 1:1 to the panels. `physical_to_uv(metres)`
+pixel resolution so the render maps 1:1 to the panels — it first drops to windowed
+mode (`window_set_size` is ignored while maximized/fullscreen) and sets the root
+`content_scale_size` (the project's `canvas_items` stretch otherwise keeps the old
+2D base and just scales it, so the render never actually matches the new size).
+`fit_to_monitor()` (an `action`) instead fills the window's current monitor: it
+goes (borderless) fullscreen on that screen (`window_get_current_screen` /
+`screen_get_size`) and sets `content_scale_size` to the monitor resolution so the
+viewing space fills it 1:1. `physical_to_uv(metres)`
 converts a real-world position to a normalized screen coord (X→horizontal,
 Y→vertical) — used by `InfluenceController._wall_to_view` to place a `map_to_wall`
 influence at the tracked object's real spot on the rendered wall (physical metres →

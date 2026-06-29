@@ -32,8 +32,36 @@ func reset_defaults() -> void:
 ## render maps 1:1 to the LED panels. (Combine with F11 fullscreen on the wall's
 ## display for a borderless output.)
 func apply_resolution() -> void:
-	if pixel_width > 0 and pixel_height > 0:
-		DisplayServer.window_set_size(Vector2i(pixel_width, pixel_height))
+	if pixel_width <= 0 or pixel_height <= 0:
+		return
+	var sz := Vector2i(pixel_width, pixel_height)
+	# window_set_size is ignored while the window is maximized or fullscreen, so
+	# return to windowed mode first or the resize silently does nothing.
+	if DisplayServer.window_get_mode() != DisplayServer.WINDOW_MODE_WINDOWED:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(sz)
+	# The project uses "canvas_items" stretch, which keeps a fixed 2D base size and
+	# scales it to the window — so the rendered output never actually matches the new
+	# size until the content-scale base is updated too. Point it at the wall
+	# resolution so the scene renders 1:1 (no upscale blur).
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree:
+		var root: Window = (ml as SceneTree).root
+		if root:
+			root.content_scale_size = sz
+
+## Action: make the render fill the entire monitor the window is currently on.
+## Goes (borderless) fullscreen on that screen and matches the content-scale base to
+## the monitor's resolution so the viewing space fills it 1:1.
+func fit_to_monitor() -> void:
+	var screen := DisplayServer.window_get_current_screen()
+	var screen_size := DisplayServer.screen_get_size(screen)
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree:
+		var root: Window = (ml as SceneTree).root
+		if root and screen_size.x > 0 and screen_size.y > 0:
+			root.content_scale_size = screen_size
 
 ## Map a physical position (metres, OptiTrack/world space) to a normalized screen
 ## coordinate [0,1] across the wall: X → horizontal, Y → vertical (Y measured up,
@@ -64,5 +92,7 @@ func get_param_schema() -> Array:
 			{"name": "origin", "type": "vector3", "hint": "Physical wall centre (metres)"},
 			{"name": "apply_resolution", "type": "action", "label": "Apply Resolution to Window",
 				"hint": "Resize the window to the wall's pixel resolution"},
+			{"name": "fit_to_monitor", "type": "action", "label": "Fit to Current Monitor",
+				"hint": "Fullscreen the render to fill the monitor the window is on"},
 		]
 	}]
