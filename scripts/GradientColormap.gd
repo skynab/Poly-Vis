@@ -7,7 +7,10 @@ extends Resource
 ## one in the inspector, or call GradientColormap.create(preset) from code.
 class_name GradientColormap
 
-enum Preset { CUSTOM, VIRIDIS, PINK_RED_WHITE, PURPLE_YELLOW, GREEN_TEAL }
+# New presets are appended at the end so existing serialized `preset` ints (stored
+# by CompositionIO) keep mapping to the same colormap.
+enum Preset { CUSTOM, VIRIDIS, PINK_RED_WHITE, PURPLE_YELLOW, GREEN_TEAL,
+	MAGMA, ICE, SUNSET, GRAYSCALE, RAINBOW }
 
 @export var preset: Preset = Preset.VIRIDIS: set = set_preset
 @export var gradient: Gradient: set = set_gradient
@@ -69,6 +72,30 @@ static func _build_gradient(p: Preset) -> Gradient:
 			offsets = PackedFloat32Array([0.0, 0.5, 1.0])
 			colors = PackedColorArray([
 				Color(0.04, 0.43, 0.31), Color(0.12, 0.82, 0.64), Color(0.95, 1.0, 0.40)])
+		Preset.MAGMA:  # perceptual dark→warm: near-black → purple → magenta → orange → cream
+			offsets = PackedFloat32Array([0.0, 0.25, 0.5, 0.75, 1.0])
+			colors = PackedColorArray([
+				Color(0.001, 0.0, 0.014), Color(0.28, 0.06, 0.40),
+				Color(0.68, 0.18, 0.36), Color(0.97, 0.49, 0.36),
+				Color(0.99, 0.99, 0.75)])
+		Preset.ICE:  # cool: deep navy → sky blue → icy white
+			offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+			colors = PackedColorArray([
+				Color(0.02, 0.05, 0.20), Color(0.20, 0.60, 0.85), Color(0.90, 0.98, 1.0)])
+		Preset.SUNSET:  # warm: dark purple → magenta → orange → gold
+			offsets = PackedFloat32Array([0.0, 0.33, 0.66, 1.0])
+			colors = PackedColorArray([
+				Color(0.15, 0.05, 0.30), Color(0.70, 0.15, 0.45),
+				Color(0.98, 0.45, 0.25), Color(1.0, 0.85, 0.40)])
+		Preset.GRAYSCALE:  # neutral: near-black → near-white
+			offsets = PackedFloat32Array([0.0, 1.0])
+			colors = PackedColorArray([Color(0.02, 0.02, 0.02), Color(0.98, 0.98, 0.98)])
+		Preset.RAINBOW:  # full spectral sweep: violet → blue → teal → green → orange → red
+			offsets = PackedFloat32Array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+			colors = PackedColorArray([
+				Color(0.60, 0.0, 0.70), Color(0.0, 0.20, 0.90),
+				Color(0.0, 0.80, 0.70), Color(0.50, 0.90, 0.10),
+				Color(1.0, 0.70, 0.0), Color(0.90, 0.10, 0.10)])
 		_:  # VIRIDIS (also the CUSTOM fallback)
 			offsets = PackedFloat32Array([0.0, 0.25, 0.5, 0.75, 1.0])
 			colors = PackedColorArray([
