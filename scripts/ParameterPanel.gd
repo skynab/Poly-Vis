@@ -178,30 +178,41 @@ func _build_base() -> void:
 
 	_panel_body.add_child(HSeparator.new())
 
-	# Scrollable parameter area
+	# Parameters split into two tabs so it's clear which settings are global
+	# (camera / scene / HUD / ring / wall) versus tied to the selected object.
+	var tabs := TabContainer.new()
+	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_panel_body.add_child(tabs)
+
+	# --- Global tab: camera / scene / hud / gizmo / wall (always present) ---
+	var global_content := _make_scroll_tab(tabs, "Global")
+	if _camera and _camera.has_method("get_param_schema"):
+		_populate(global_content, _camera, _camera.get_param_schema())
+	if _scene and _scene.has_method("get_param_schema"):
+		_populate(global_content, _scene, _scene.get_param_schema())
+	if _hud and _hud.has_method("get_param_schema"):
+		_populate(global_content, _hud, _hud.get_param_schema())
+	if _gizmo and _gizmo.has_method("get_param_schema"):
+		_populate(global_content, _gizmo, _gizmo.get_param_schema())
+	if _wall and _wall.has_method("get_param_schema"):
+		_populate(global_content, _wall, _wall.get_param_schema())
+
+	# --- Selection tab: just the selected object's controls (show_object fills it) ---
+	_object_host = _make_scroll_tab(tabs, "Selection")
+
+## Build a scrollable tab page in `tabs` titled `title`, returning its content
+## VBox to populate. The TabContainer uses the page node's name as the tab label.
+func _make_scroll_tab(tabs: TabContainer, title: String) -> VBoxContainer:
 	var scroll := ScrollContainer.new()
+	scroll.name = title
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_panel_body.add_child(scroll)
-
+	tabs.add_child(scroll)
 	var content := VBoxContainer.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 4)
 	scroll.add_child(content)
-
-	if _camera and _camera.has_method("get_param_schema"):
-		_populate(content, _camera, _camera.get_param_schema())
-	if _scene and _scene.has_method("get_param_schema"):
-		_populate(content, _scene, _scene.get_param_schema())
-	if _hud and _hud.has_method("get_param_schema"):
-		_populate(content, _hud, _hud.get_param_schema())
-	if _gizmo and _gizmo.has_method("get_param_schema"):
-		_populate(content, _gizmo, _gizmo.get_param_schema())
-	if _wall and _wall.has_method("get_param_schema"):
-		_populate(content, _wall, _wall.get_param_schema())
-	_object_host = VBoxContainer.new()
-	_object_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	content.add_child(_object_host)
+	return content
 
 func _btn(parent: Node, text: String, tip: String, cb: Callable) -> void:
 	var b := Button.new()
