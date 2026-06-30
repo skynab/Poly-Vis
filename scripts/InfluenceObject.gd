@@ -27,7 +27,7 @@ enum Mode { ATTRACT, REPEL }
 @export var track_rigid_body: bool = false
 ## Motive asset ID of the rigid body to follow (matches the OptiTrackRigidBody
 ## node's Rigid Body Asset ID). 999 == unassigned.
-@export var rigid_body_asset_id: int = 999
+@export var rigid_body_asset_id: int = 1
 ## Added to the streamed position — maps Motive's origin to a point in the scene.
 @export var track_position_offset: Vector3 = Vector3.ZERO
 ## When true the streamed position is flattened onto the plane the camera is
@@ -43,7 +43,7 @@ enum Mode { ATTRACT, REPEL }
 ## (Z) so the rigid body's motion lines up with the LED wall when Motive's axes are
 ## mirrored relative to the view. Applied to the raw position before offset / wall
 ## mapping (see InfluenceController._optitrack_pos).
-@export var invert_x: bool = false
+@export var invert_x: bool = true
 @export var invert_z: bool = false
 
 @export_subgroup("Connection")
