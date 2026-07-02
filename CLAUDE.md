@@ -53,13 +53,14 @@ Central object registry. All managed objects (`PolyMesh`, `PolyParticles`,
 
 Adds come in two flavors. The **undo-free primitives** `spawn_mesh()`,
 `spawn_particles()`, `spawn_cloth()`, `spawn_trails()`, `spawn_metaballs()`,
-`spawn_strands()`, `spawn_boids()`, `spawn_influence(select_after=true)` register
+`spawn_strands()`, `spawn_boids()`, `spawn_voronoi()`,
+`spawn_influence(select_after=true)` register
 an object without
 touching undo history — used by CompositionIO (load / preset / duplicate) and
 InfluenceController's auto-bind, where a batch appears without meaning a user
 "add". The **user-facing** `add_mesh()` / `add_particles()` / `add_cloth()` /
 `add_trails()` / `add_metaballs()` / `add_strands()` / `add_boids()` /
-`add_influence(select_after=true)` wrap the
+`add_voronoi()` / `add_influence(select_after=true)` wrap the
 matching primitive and, when `undo` is set, record a single undo step via
 `_record_add()` (see UndoHistory). `spawn_influence(false)` /
 `add_influence(false)` skip the normal select-on-add so a silent auto-spawn
@@ -258,6 +259,28 @@ orients each particle's mesh so its long +Y axis points along the boid's heading
 GPUParticles3D independently), so `VisualizationManager._register` wires the
 `audio_reactor` onto `PolyParticles or PolyBoids`, and `_type_label` matches it
 separately. Schema-driven serialization.
+
+### PolyVoronoi
+`MeshInstance3D` rendering a **fractured** icosphere — PolyMesh's base form split
+into Voronoi shards that crack open under the influence field. The build reuses
+PolyMesh's `_generate_icosphere` + simplex `_displace_vertices` math verbatim, then
+`_assign_cells()` scatters `num_cells` random seed directions on the sphere
+(deterministic from `noise_seed`; count derived from `cell_size` and capped to
+`tri_count/2` so shards keep ~2 faces), assigns each triangle to its nearest seed
+by centroid direction, and computes a per-cell centroid. `_build_fractured_surface()`
+emits unique verts per triangle (flat normals) and bakes the cell's object-space
+centroid into `CUSTOM0.xyz` + a scattered per-cell id into `CUSTOM0.w` via
+`SurfaceTool.set_custom` (`CUSTOM_RGBA_FLOAT`). `poly_voronoi.gdshader` then
+translates each cell **as a rigid chunk** outward along its centroid direction, by
+the influence proximity evaluated once at the cell centre (same centre + push for
+every vertex of the cell, so the shard stays intact and only the seams between
+cells open) — the `cull_disabled` backfaces show through the cracks. `shatter_amount`
+scales the push, `gap_falloff` sharpens the crack edge; signed influence strength
+opens (+) or implodes (−). Reuses the shared colormap / posterize / contrast / rim /
+influence-tint uniforms; adds a **Cell** color source (flat per-cell → mosaic,
+the default) and a **Shatter** source (lights cells by how far they've opened).
+Geometry/cell params `rebuild()`; fracture/color params are cheap uniform pushes
+(`_push_fracture` / `_apply_color_and_polish`). Schema-driven serialization.
 
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
@@ -763,6 +786,19 @@ each frame / on property change:
 | `u_posterize`, `u_posterize_steps` | `_apply_color_and_polish` |
 | `u_rim_strength/power/color`, `u_translucency` | `_apply_color_and_polish` |
 | `u_influence_count`, `u_influence_pos[]`, `u_influence_radius[]`, `u_influence_strength[]`, `u_influence_color[]` | `set_influences()` via InfluenceController |
+
+### poly_voronoi.gdshader (spatial)
+PolyVoronoi's fracture shader — `render_mode cull_disabled, diffuse_burley,
+specular_schlick_ggx`, same flat-shading (face normal from `dFdx`/`dFdy`, flipped
+by `FRONT_FACING`) and colormap / posterize / contrast / rim / `u_influence_*`
+conventions as `polymesh_deform`. The geometry is baked with per-triangle cell data
+(PolyVoronoi.gd), so the vertex stage reads the cell centroid from `CUSTOM0.xyz` and
+cell id from `CUSTOM0.w`, evaluates the influence falloff once at the cell centre in
+world space (`pow(fall, u_gap_falloff)`), and translates the vertex outward along
+`normalize(CUSTOM0.xyz)` by `push * u_shatter_amount` — every vertex of a cell gets
+the same centre + push, so cells separate rigidly at their seams. `color_source` 3
+= flat `v_cellid` (Voronoi mosaic), 4 = `v_shatter` (crack amount). No `u_time` /
+animation.
 
 ### particle_flow.gdshader (particles)
 Similar set — all pushed via `_mat.set_shader_parameter()`. Curl-noise flow
