@@ -71,7 +71,7 @@ func _ready() -> void:
 	audio.bind(self)
 	manager.audio_reactor = audio
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio)
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence)
 	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 

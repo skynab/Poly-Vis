@@ -10,7 +10,7 @@ class_name CompositionIO
 # --- serialize -------------------------------------------------------------
 static func serialize(manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null, audio: Object = null) -> Dictionary:
+		wall: Object = null, audio: Object = null, influence_ctrl: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
@@ -25,6 +25,8 @@ static func serialize(manager: VisualizationManager, camera: Node,
 		result["wall"] = _schema_to_dict(wall)
 	if audio and audio.has_method("get_param_schema"):
 		result["audio"] = _schema_to_dict(audio)
+	if influence_ctrl and influence_ctrl.has_method("get_param_schema"):
+		result["auto_bind"] = _schema_to_dict(influence_ctrl)
 	return result
 
 ## Encode every schema property of a single object into a flat Dictionary.
@@ -96,7 +98,7 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 # --- deserialize -----------------------------------------------------------
 static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null, audio: Object = null) -> void:
+		wall: Object = null, audio: Object = null, influence_ctrl: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
@@ -132,6 +134,13 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		if audio.has_method("reset_defaults"):
 			audio.reset_defaults()
 		_dict_to_schema(audio, data.get("audio", {}))
+	if influence_ctrl:
+		# Same pattern: presets carry no "auto_bind" block, so auto-bind resets
+		# off on load (objects were already cleared above, taking any
+		# auto-spawned influences with them).
+		if influence_ctrl.has_method("reset_defaults"):
+			influence_ctrl.reset_defaults()
+		_dict_to_schema(influence_ctrl, data.get("auto_bind", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 

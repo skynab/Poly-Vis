@@ -18,11 +18,20 @@ signal proximity_exited(influence: InfluenceObject, target: Node3D)
 ## influence crosses the system's bounds, visibly resetting the particles.
 @export var burst_on_enter: bool = false
 
+## When true, one InfluenceObject is auto-spawned per streamed OptiTrack rigid
+## body (up to MAX_INFLUENCES total) and auto-despawned when its rigid body
+## stops streaming. See _update_auto_bind(). Off by default; manually-created
+## influences are never touched, and turning this off simply stops the
+## automatic add/remove — any influences it already spawned stay put as
+## ordinary, manually-editable influences.
+@export var auto_bind_rigid_bodies: bool = false
+
 var _manager: VisualizationManager
 var _camera: Camera3D
 var _wall: Object                 # WallConfig — physical→screen mapping for tracking
 var _dragging: bool = false
 var _proximity: Dictionary = {}   # "infl_id:target_id" -> bool
+var _auto_bound: Dictionary = {}  # rigid_body_asset_id (int) -> InfluenceObject
 
 func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null) -> void:
 	_manager = manager
@@ -32,10 +41,20 @@ func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null)
 		proximity_entered.connect(_on_proximity_entered)
 	set_process(true)
 
+## Reset to the authored default (auto-bind off). Called when loading a
+## composition that carries no "auto_bind" block, so a previous session's
+## setting doesn't silently carry over. Auto-spawned influences are already
+## gone by the time this runs — CompositionIO.apply() clears all managed
+## objects before restoring any global module.
+func reset_defaults() -> void:
+	auto_bind_rigid_bodies = false
+	_auto_bound.clear()
+
 func _process(_delta: float) -> void:
 	if _manager == null:
 		return
 	_update_follow()
+	_update_auto_bind()
 	_push_uniforms()
 	_update_proximity()
 
@@ -56,6 +75,99 @@ func _update_follow() -> void:
 			infl.global_position = _optitrack_pos(infl)
 		elif infl.follow_mouse:
 			infl.global_position = _project_mouse(infl.global_position)
+
+# --- auto-bind: one influence per streamed rigid body -----------------------
+## Keeps InfluenceObjects in 1:1 sync with the currently-streamed OptiTrack
+## rigid bodies while auto_bind_rigid_bodies is on. Spawns a new influence
+## (track_rigid_body = true, rigid_body_asset_id = the streamed asset) for
+## every streamed asset that no influence — manual or auto — already tracks,
+## and despawns any influence *this* controller spawned once its asset stops
+## streaming. Manually-created influences are never spawned or removed by this,
+## even if their tracked asset later goes offline. A no-op with the mode off,
+## the plugin absent, or Motive disconnected (see _live_rigid_body_assets).
+func _update_auto_bind() -> void:
+	if not auto_bind_rigid_bodies:
+		return
+	var assets := _live_rigid_body_assets()
+
+	# Despawn: influences we auto-spawned whose rigid body is no longer streamed.
+	for asset_id in _auto_bound.keys().duplicate():
+		var infl: InfluenceObject = _auto_bound[asset_id]
+		if not is_instance_valid(infl) or not assets.has(asset_id):
+			_auto_bound.erase(asset_id)
+			if is_instance_valid(infl):
+				_manager.remove(infl)
+
+	# Spawn: streamed assets nothing is tracking yet, up to the shader's cap.
+	var claimed := _claimed_asset_ids()
+	for asset_id in assets:
+		if _influences().size() >= MAX_INFLUENCES:
+			break
+		if claimed.has(asset_id):
+			continue
+		_spawn_auto_influence(asset_id)
+		claimed[asset_id] = true
+
+## Currently streamed rigid-body assets, keyed by asset id → Motive name.
+## "Unassigned" slots are filtered out, mirroring InfluenceObject.connection_status().
+## Defensive like _optitrack_pos: returns {} without the plugin, the autoload,
+## or a live Motive connection.
+func _live_rigid_body_assets() -> Dictionary:
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null or not ot.has_method("get_rigid_body_assets"):
+		return {}
+	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
+		return {}
+	var raw: Dictionary = ot.call("get_rigid_body_assets")
+	var out := {}
+	for id in raw:
+		if str(raw[id]) != "Unassigned":
+			out[id] = raw[id]
+	return out
+
+## Asset ids already tracked by some influence (manual or auto) — these are
+## left alone, so auto-bind never double-spawns for the same rigid body.
+func _claimed_asset_ids() -> Dictionary:
+	var claimed := {}
+	for infl in _influences():
+		if infl.track_rigid_body:
+			claimed[infl.rigid_body_asset_id] = true
+	return claimed
+
+## Spawn one influence for `asset_id`, inheriting radius/strength/color from a
+## template — the first manually-created influence found (never one of ours),
+## so a hand-tuned look carries over to every auto-bound rigid body. Falls back
+## to InfluenceObject's own defaults when no manual influence exists yet.
+func _spawn_auto_influence(asset_id: int) -> void:
+	var inf := _manager.add_influence(false) as InfluenceObject
+	var tmpl := _template_influence()
+	if tmpl:
+		inf.radius = tmpl.radius
+		inf.strength = tmpl.strength
+		inf.influence_color = tmpl.influence_color
+	inf.track_rigid_body = true
+	inf.rigid_body_asset_id = asset_id
+	_auto_bound[asset_id] = inf
+
+func _template_influence() -> InfluenceObject:
+	for o in _manager.objects:
+		if o is InfluenceObject and not _auto_bound.values().has(o):
+			return o
+	return null
+
+## Live readout for the panel's "status" row — how many rigid bodies are
+## currently bound, or "Off" when the mode is disabled.
+func auto_bind_status() -> String:
+	if not auto_bind_rigid_bodies:
+		return "Off"
+	var live: Array = []
+	for asset_id in _auto_bound:
+		if is_instance_valid(_auto_bound[asset_id]):
+			live.append(asset_id)
+	if live.is_empty():
+		return "On — none bound"
+	live.sort()
+	return "On — %d bound (assets %s)" % [live.size(), str(live)]
 
 ## Position from an OptiTrack rigid body via the OptiTrack autoload. Defensive:
 ## if the plugin isn't installed, the autoload is absent, or Motive isn't
@@ -201,3 +313,16 @@ func _update_proximity() -> void:
 func _on_proximity_entered(_influence: InfluenceObject, target: Node3D) -> void:
 	if burst_on_enter and target is PolyParticles:
 		(target as PolyParticles).restart()
+
+## Schema consumed by the ParameterPanel — a global module like SceneEnvironment
+## / WallConfig, serialized by CompositionIO under "auto_bind".
+func get_param_schema() -> Array:
+	return [{
+		"title": "Auto-Bind Rigid Bodies",
+		"props": [
+			{"name": "auto_bind_rigid_bodies", "type": "bool",
+				"hint": "Spawn/despawn one Influence per streamed OptiTrack rigid body (up to %d). Radius/strength/color are copied from the first manually-created influence; manual influences are never touched, and turning this off just stops further auto add/remove." % MAX_INFLUENCES},
+			{"name": "auto_bind_status", "type": "status", "label": "Bound",
+				"interval": 0.5, "hint": "Currently auto-bound rigid-body assets"},
+		]
+	}]

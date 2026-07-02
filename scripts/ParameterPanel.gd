@@ -30,6 +30,7 @@ var _audio: Object  # AudioReactor — spectrum bands/beat, rendered after scene
 var _hud: Object    # HudLogo — overlay logo, rendered after audio
 var _gizmo: Object  # SelectionGizmo — selection ring toggle, rendered after hud
 var _wall: Object   # WallConfig — LED wall dimensions/resolution, rendered after gizmo
+var _influence_ctrl: Object  # InfluenceController — auto-bind toggle, rendered after wall
 var _capture: CaptureManager
 var _undo: UndoHistory
 var _obj_selector: OptionButton
@@ -50,7 +51,7 @@ var _fullscreen := false
 func setup(manager: VisualizationManager, camera: Node,
 		capture: CaptureManager = null, undo: UndoHistory = null,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null, audio: Object = null) -> void:
+		wall: Object = null, audio: Object = null, influence_ctrl: Object = null) -> void:
 	_manager = manager
 	_camera = camera
 	_scene = scene
@@ -58,6 +59,7 @@ func setup(manager: VisualizationManager, camera: Node,
 	_gizmo = gizmo
 	_wall = wall
 	_audio = audio
+	_influence_ctrl = influence_ctrl
 	_capture = capture
 	_undo = undo
 	if not _built:
@@ -192,7 +194,7 @@ func _build_base() -> void:
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_panel_body.add_child(tabs)
 
-	# --- Global tab: camera / scene / hud / gizmo / wall (always present) ---
+	# --- Global tab: camera / scene / audio / hud / gizmo / wall / auto-bind ---
 	var global_content := _make_scroll_tab(tabs, "Global")
 	if _camera and _camera.has_method("get_param_schema"):
 		_populate(global_content, _camera, _camera.get_param_schema())
@@ -206,6 +208,8 @@ func _build_base() -> void:
 		_populate(global_content, _gizmo, _gizmo.get_param_schema())
 	if _wall and _wall.has_method("get_param_schema"):
 		_populate(global_content, _wall, _wall.get_param_schema())
+	if _influence_ctrl and _influence_ctrl.has_method("get_param_schema"):
+		_populate(global_content, _influence_ctrl, _influence_ctrl.get_param_schema())
 
 	# --- Selection tab: just the selected object's controls (show_object fills it) ---
 	_object_host = _make_scroll_tab(tabs, "Selection")
@@ -314,7 +318,7 @@ func _on_preset_selected(idx: int) -> void:
 		return
 	var names := BuiltInPresets.PRESETS.keys()
 	var data: Dictionary = BuiltInPresets.PRESETS[names[idx - 1]]
-	CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio)
+	CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
 	_show_status("Loaded preset: " + names[idx - 1])
 
 func _open_save() -> void:
@@ -329,7 +333,7 @@ func trigger_save() -> void:
 	_open_save()
 
 func _do_save(path: String) -> void:
-	var data := CompositionIO.serialize(_manager, _camera, _scene, _hud, _gizmo, _wall, _audio)
+	var data := CompositionIO.serialize(_manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
 	var err := CompositionIO.save_json(path, data)
 	_show_status("Saved: " + path.get_file() if err == OK else "Save failed (%d)" % err)
 
@@ -338,7 +342,7 @@ func _do_load(path: String) -> void:
 	if data.is_empty():
 		_show_status("Load failed: empty or invalid file")
 		return
-	CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio)
+	CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
 	_show_status("Loaded: " + path.get_file())
 
 func duplicate_selected() -> void:

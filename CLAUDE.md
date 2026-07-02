@@ -50,8 +50,13 @@ Central object registry. All managed objects (`PolyMesh`, `PolyParticles`,
 `InfluenceObject`) are direct children. Emits `objects_changed` and
 `selection_changed(obj)`.
 
-Key methods: `add_mesh()`, `add_particles()`, `add_influence()`,
-`remove_selected()`, `clear_all()`, `select(obj)`.
+Key methods: `add_mesh()`, `add_particles()`, `add_influence(select_after=true)`,
+`remove(obj)`, `remove_selected()`, `clear_all()`, `select(obj)`. `remove(obj)`
+frees a specific managed object without disturbing the current selection unless
+`obj` was it — `remove_selected()` is just `remove(selected)`; used by
+InfluenceController's auto-bind to despawn a stale influence in the background.
+`add_influence(false)` skips the normal select-on-add for the same reason (a
+silent auto-spawn shouldn't steal panel focus).
 
 ### PolyMesh
 Procedural icosphere. Build pipeline:
@@ -171,6 +176,31 @@ boundaries. `burst_on_enter` (restart particles on proximity-enter) defaults OFF
 a follow-mouse influence would otherwise reset particles constantly as it crosses
 the bounds.
 
+`auto_bind_rigid_bodies` (off by default) keeps InfluenceObjects in 1:1 sync with
+whatever OptiTrack rigid bodies are currently streaming, for setups with several
+tracked props. Each frame, while on, `_update_auto_bind()` reads
+`OptiTrack.get_rigid_body_assets()` (guarded exactly like `_optitrack_pos` —
+`get_node_or_null` + `has_method` + `is_connected_to_motive`, so it's a no-op
+without the plugin) and: despawns any influence *it* previously auto-spawned
+whose asset stopped streaming (`VisualizationManager.remove()`, a generalization
+of `remove_selected()` that frees a specific object without touching the current
+selection); then spawns one influence per streamed asset nothing already tracks
+(`VisualizationManager.add_influence(false)` — the `false` skips the usual
+select-on-add so a background auto-spawn doesn't steal panel focus), setting
+`track_rigid_body = true` and `rigid_body_asset_id`, and copying
+radius/strength/color from the first manually-created influence found (a
+"template"; falls back to `InfluenceObject`'s own defaults if none exists).
+Manually-created influences — and their own `track_rigid_body` assignments — are
+never spawned or despawned by this. Spawning stops once total influence count
+hits `MAX_INFLUENCES` (8), matching the shader's fixed-size influence arrays.
+Auto-bound influences use the normal per-object `invert_x`/`invert_z`/
+`map_to_wall`/`project_to_view` handling in `_optitrack_pos()` like any other
+tracked influence — no special-casing needed. Turning the mode off just stops
+further auto add/remove; influences it already spawned remain as ordinary,
+manually-editable influences. Schema-driven like the other global modules
+(`auto_bind_status()` backs a live "N bound" status row), serialized by
+CompositionIO under `"auto_bind"`; `reset_defaults()` turns it off.
+
 ### GradientColormap
 `Resource` wrapping a `Gradient` and baking it to a `GradientTexture1D`.
 Presets: VIRIDIS (1), PINK_RED_WHITE (2), PURPLE_YELLOW (3), GREEN_TEAL (4).
@@ -209,9 +239,9 @@ it stores no value and CompositionIO skips it during (de)serialization.
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
 → capture/record → status line → hint bar → camera → scene → audio reactivity →
-HUD logo → selection ring → LED wall → object sections. Camera/scene/audio/hud/
-gizmo/wall are global modules in a static area; managed-object controls render in
-`_object_host` below them.
+HUD logo → selection ring → LED wall → auto-bind rigid bodies → object sections.
+Camera/scene/audio/hud/gizmo/wall/auto-bind are global modules in a static area;
+managed-object controls render in `_object_host` below them.
 
 ### HudLogo
 `CanvasLayer` overlay showing a logo over the front of the view. Bundles the
@@ -238,17 +268,21 @@ and shadowing it is a parse error.
 
 ### CompositionIO
 Stateless serializer. `serialize(manager, camera, scene=null, hud=null,
-gizmo=null, wall=null, audio=null)` → Dictionary; `apply(data, manager, camera,
-scene=null, hud=null, gizmo=null, wall=null, audio=null)` → rebuilds from
-Dictionary. File I/O: `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
+gizmo=null, wall=null, audio=null, influence_ctrl=null)` → Dictionary;
+`apply(data, manager, camera, scene=null, hud=null, gizmo=null, wall=null,
+audio=null, influence_ctrl=null)` → rebuilds from Dictionary. File I/O:
+`save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
 Vector3 → `[x,y,z]`, enums → int, strings → as-is, colormaps → `{"preset": N,
 "offsets": [], "colors": []}`. Camera, `scene` (SceneEnvironment), `hud` (HudLogo),
-`gizmo` (SelectionGizmo), `wall` (WallConfig), and `audio` (AudioReactor) are each
+`gizmo` (SelectionGizmo), `wall` (WallConfig), `audio` (AudioReactor), and
+`influence_ctrl` (InfluenceController, under key `"auto_bind"`) are each
 serialized by walking their `get_param_schema()` via the shared `_schema_to_dict` /
 `_dict_to_schema` helpers. Each managed object also stores `position` + `rotation`
 (Euler degrees). On load, if a module is supplied but the composition lacks its
 block, `reset_defaults()` runs first (white room / no logo / ring off / default
-wall / audio off).
+wall / audio off / auto-bind off) — note `manager.clear_all()` (which runs before
+any module reset) already frees any influences a previous auto-bind session
+spawned.
 
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
@@ -472,14 +506,15 @@ entirely by the schema.
   "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0, "shadow_enabled": true, "shadow_color": [0.0, 0.0, 0.0, 0.5], "shadow_offset_x": 8.0, "shadow_offset_y": 8.0, "shadow_blur": 0.0 },
   "wall": { "physical_width": 3.0, "physical_height": 2.0, "pixel_width": 1920, "pixel_height": 1080, "origin": [0.0, 0.0, 0.0] },
   "audio": { "enabled": true, "input_source": 0, "smoothing": 0.8, "bass_gain": 1.0, "mid_gain": 1.0, "treble_gain": 1.0, "beat_sensitivity": 1.3 },
+  "auto_bind": { "auto_bind_rigid_bodies": false },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-The `"scene"`, `"hud"`, `"wall"`, and `"audio"` blocks are optional; when absent
-on load the environment resets to the default white room (no bloom), the logo
-turns off, the wall resets to its default dimensions, and audio reactivity turns
-off.
+The `"scene"`, `"hud"`, `"wall"`, `"audio"`, and `"auto_bind"` blocks are
+optional; when absent on load the environment resets to the default white room
+(no bloom), the logo turns off, the wall resets to its default dimensions, audio
+reactivity turns off, and auto-bind rigid bodies turns off.
 Each object stores `"position"` and `"rotation"` (Euler degrees) alongside its
 schema `params`; `rotation` is optional (older comps without it load unrotated).
 Only parameters present in `get_param_schema()`

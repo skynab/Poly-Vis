@@ -41,13 +41,16 @@ func add_particles() -> Node3D:
 func add_cloth() -> Node3D:
 	return _register(PolyCloth.new())
 
-func add_influence() -> Node3D:
-	var inf := _register(InfluenceObject.new())
+## `select_after` is false for influences spawned silently by
+## InfluenceController's auto-bind (so a newly-streamed rigid body doesn't
+## steal the panel's selection away from whatever the user is editing).
+func add_influence(select_after: bool = true) -> Node3D:
+	var inf := _register(InfluenceObject.new(), select_after)
 	# Influences start in front of the origin rather than offset down the X row.
 	inf.position = Vector3(0.0, 0.0, 2.5)
 	return inf
 
-func _register(obj: Node3D) -> Node3D:
+func _register(obj: Node3D, select_after: bool = true) -> Node3D:
 	_spawn_counter += 1
 	obj.name = "%s_%d" % [_type_label(obj), _spawn_counter]
 	# Offset each new object so they don't stack on the origin.
@@ -57,7 +60,8 @@ func _register(obj: Node3D) -> Node3D:
 	add_child(obj)
 	objects.append(obj)
 	objects_changed.emit()
-	select(obj)
+	if select_after:
+		select(obj)
 	return obj
 
 func _type_label(obj: Node) -> String:
@@ -72,17 +76,26 @@ func _type_label(obj: Node) -> String:
 	return "Object"
 
 func remove_selected() -> void:
-	if selected == null:
+	remove(selected)
+
+## Free a specific managed object. Unlike remove_selected(), this leaves the
+## current selection alone when `obj` isn't the selected one — used by
+## InfluenceController's auto-bind to despawn an influence whose rigid body
+## stopped streaming without disturbing whatever the user has selected.
+func remove(obj: Node3D) -> void:
+	if obj == null or not objects.has(obj):
 		return
-	var idx := objects.find(selected)
-	objects.erase(selected)
-	selected.queue_free()
-	selected = null
+	var idx := objects.find(obj)
+	var was_selected := obj == selected
+	objects.erase(obj)
+	obj.queue_free()
 	objects_changed.emit()
-	if not objects.is_empty():
-		select(objects[clampi(idx, 0, objects.size() - 1)])
-	else:
-		selection_changed.emit(null)
+	if was_selected:
+		selected = null
+		if not objects.is_empty():
+			select(objects[clampi(idx, 0, objects.size() - 1)])
+		else:
+			selection_changed.emit(null)
 
 func clear_all() -> void:
 	for obj in objects.duplicate():
