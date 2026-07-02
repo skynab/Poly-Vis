@@ -674,14 +674,140 @@ func _add_colormap(body: VBoxContainer, obj: Object, _prop: Dictionary) -> void:
 	opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for n in PRESET_NAMES:
 		opt.add_item(n)
-	var cm: GradientColormap = obj.get("colormap")
-	if cm:
-		var idx := PRESET_VALUES.find(cm.preset)
-		if idx >= 0:
-			opt.selected = idx
+	# "Custom" trails the built-in presets and reveals the inline gradient editor.
+	opt.add_item("Custom…")
+	var custom_idx := PRESET_NAMES.size()
 	row.add_child(opt)
+
+	# Editor host directly below the dropdown, filled only while the colormap is a
+	# CUSTOM gradient; a built-in preset leaves it empty.
+	var editor := VBoxContainer.new()
+	editor.add_theme_constant_override("separation", 2)
+	body.add_child(editor)
+
+	var cm: GradientColormap = obj.get("colormap")
+	if cm and cm.preset == GradientColormap.Preset.CUSTOM:
+		opt.selected = custom_idx
+	elif cm:
+		var idx := PRESET_VALUES.find(cm.preset)
+		opt.selected = idx if idx >= 0 else 0
+
 	opt.item_selected.connect(func(i: int):
-		obj.set("colormap", GradientColormap.create(PRESET_VALUES[i])))
+		if i == custom_idx:
+			# Seed the custom gradient from whatever is showing now, so switching to
+			# Custom starts identical and the user edits from there.
+			obj.set("colormap", _custom_colormap_from(obj.get("colormap")))
+		else:
+			obj.set("colormap", GradientColormap.create(PRESET_VALUES[i]))
+		_refresh_colormap_editor(editor, obj))
+
+	_refresh_colormap_editor(editor, obj)
+
+## Build a fresh preset=CUSTOM colormap whose gradient copies `src` (or a plain
+## black→white ramp when there's nothing to copy). Used when the user picks
+## "Custom" so editing begins from the currently-shown colors.
+func _custom_colormap_from(src: GradientColormap) -> GradientColormap:
+	var cm := GradientColormap.new()
+	cm.preset = GradientColormap.Preset.CUSTOM
+	var g := Gradient.new()
+	if src and src.gradient and src.gradient.get_point_count() > 0:
+		var po := PackedFloat32Array()
+		var pc := PackedColorArray()
+		for i in src.gradient.get_point_count():
+			po.append(src.gradient.get_offset(i))
+			pc.append(src.gradient.get_color(i))
+		g.offsets = po
+		g.colors = pc
+	else:
+		g.offsets = PackedFloat32Array([0.0, 1.0])
+		g.colors = PackedColorArray([Color.BLACK, Color.WHITE])
+	cm.set_gradient(g)
+	return cm
+
+## (Re)build the inline gradient editor: a preview strip, one row per stop
+## (color picker · draggable offset · remove), and an add button. Shown only for a
+## CUSTOM colormap. Rows index a stable per-refresh model (creation order); the
+## baked Gradient is always sorted by offset, so dragging a stop past another never
+## desyncs the rows. Structural edits (add/remove) rebuild the editor.
+func _refresh_colormap_editor(editor: VBoxContainer, obj: Object) -> void:
+	for c in editor.get_children():
+		c.queue_free()
+	var cm: GradientColormap = obj.get("colormap")
+	if cm == null or cm.preset != GradientColormap.Preset.CUSTOM or cm.gradient == null:
+		return
+
+	# Stable model in creation order; the baked gradient re-sorts a copy.
+	var model: Array = []
+	for i in cm.gradient.get_point_count():
+		model.append({"off": cm.gradient.get_offset(i), "col": cm.gradient.get_color(i)})
+
+	var strip := TextureRect.new()
+	strip.texture = cm.get_texture()
+	strip.custom_minimum_size = Vector2(0, 18)
+	strip.stretch_mode = TextureRect.STRETCH_SCALE
+	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	editor.add_child(strip)
+
+	for i in model.size():
+		var stop_row := HBoxContainer.new()
+		editor.add_child(stop_row)
+
+		var picker := ColorPickerButton.new()
+		picker.custom_minimum_size = Vector2(44, 0)
+		picker.color = model[i]["col"]
+		stop_row.add_child(picker)
+		picker.color_changed.connect(func(c: Color):
+			model[i]["col"] = c
+			_apply_custom_model(cm, model))
+
+		var slider := HSlider.new()
+		slider.min_value = 0.0
+		slider.max_value = 1.0
+		slider.step = 0.01
+		slider.value = model[i]["off"]
+		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stop_row.add_child(slider)
+		slider.value_changed.connect(func(v: float):
+			model[i]["off"] = v
+			_apply_custom_model(cm, model))
+
+		var rm := Button.new()
+		rm.text = "✕"
+		rm.tooltip_text = "Remove this stop"
+		rm.disabled = model.size() <= 2  # a gradient needs at least two stops
+		stop_row.add_child(rm)
+		rm.pressed.connect(func():
+			if model.size() > 2:
+				model.remove_at(i)
+				_apply_custom_model(cm, model)
+				_refresh_colormap_editor(editor, obj))
+
+	var add_btn := Button.new()
+	add_btn.text = "+ Add Stop"
+	add_btn.tooltip_text = "Insert a new gradient stop at the midpoint"
+	add_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_btn.pressed.connect(func():
+		model.append({"off": 0.5, "col": Color.WHITE})
+		_apply_custom_model(cm, model)
+		_refresh_colormap_editor(editor, obj))
+	editor.add_child(add_btn)
+
+## Bake `model` (a list of {off, col}) into `cm`'s gradient — sorted by offset so
+## interpolation is correct regardless of row order. set_gradient emits `changed`,
+## which every object connects to its color re-apply, and re-bakes the shared
+## preview texture in place.
+func _apply_custom_model(cm: GradientColormap, model: Array) -> void:
+	var sorted := model.duplicate()
+	sorted.sort_custom(func(a, b): return a["off"] < b["off"])
+	var g := Gradient.new()
+	var po := PackedFloat32Array()
+	var pc := PackedColorArray()
+	for s in sorted:
+		po.append(s["off"])
+		pc.append(s["col"])
+	g.offsets = po
+	g.colors = pc
+	cm.set_gradient(g)
 
 func _fmt(v: Variant, is_int: bool) -> String:
 	return ("%d" % int(v)) if is_int else ("%.2f" % float(v))

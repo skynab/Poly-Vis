@@ -334,6 +334,22 @@ booleans and enums record immediately. Colors record on `popup_closed`. An `acti
 renders a button that calls `obj.<name>()` then refreshes the object's controls;
 it stores no value and CompositionIO skips it during (de)serialization.
 
+`colormap_preset` (`_add_colormap`) renders an OptionButton of the nine built-in
+presets plus a trailing **"Custom…"** entry. Picking a preset assigns
+`GradientColormap.create(preset)` as before; picking Custom seeds a fresh
+`preset = CUSTOM` colormap from the currently-shown gradient and reveals an inline
+editor below the dropdown — a live preview strip plus one row per stop (per-stop
+`ColorPickerButton`, a draggable 0–1 offset `HSlider`, and a remove button
+disabled at the two-stop minimum) and an **+ Add Stop** button. Edits mutate a
+stable per-refresh model `[{off, col}, …]` (rows keep creation order) and rebake
+`cm.gradient` from an offset-sorted copy via `_apply_custom_model`, so dragging a
+stop past another never desyncs the rows; `set_gradient`'s `changed` signal
+propagates to the object and re-bakes the shared preview texture in place. Because
+the colormap stays `preset = CUSTOM`, CompositionIO serializes its literal
+`offsets`/`colors` and `_decode_colormap` restores them on load (a CUSTOM preset
+means `set_preset` won't overwrite the loaded gradient). Gradient-editor edits are
+not routed through UndoHistory (see Known limitations).
+
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
 → capture/record → status line → hint bar → camera → scene → audio reactivity →
 HUD logo → selection ring → LED wall → auto-bind rigid bodies → post FX →
@@ -838,8 +854,9 @@ for rigid-body tracking) to a streamed asset/bone, run.
   object operations are not yet undoable.
 - LOD rebuilds the lattice MultiMesh on level change; that rebuild is
   synchronous and may cause a single-frame hitch at transition distance.
-- Colormap preset picker in the panel does not reflect custom gradients edited
-  via the inspector — only the four built-in presets are selectable.
+- Gradient-editor edits (add/remove/move/recolor a custom stop) are not undoable
+  — the colormap dropdown's nine built-in presets record undo on switch, but the
+  inline stop editor writes straight to the gradient without an UndoHistory step.
 - `emission_source` (NodePath) is not serialized by CompositionIO because
   NodePaths are scene-relative; the MESH_SURFACE emitter mode requires manual
   reconnection after load.
