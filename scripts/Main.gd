@@ -21,6 +21,9 @@ var hud_logo: HudLogo
 var wall: WallConfig
 var audio: AudioReactor
 var _fps_label: Label
+## Active preset/composition transition tween (see apply_composition). Kept so a
+## new load can cancel a still-running glide instead of fighting it.
+var _transition_tween: Tween
 
 func _ready() -> void:
 	# Capture manager — hides the UI layer during still screenshots.
@@ -71,10 +74,114 @@ func _ready() -> void:
 	audio.bind(self)
 	manager.audio_reactor = audio
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence)
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self)
 	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 
 func _process(delta: float) -> void:
 	_fps_label.text = "FPS  %d" % Engine.get_frames_per_second()
 	audio.update(delta)
+
+# ---------------------------------------------------------------------------
+# Composition loading with an optional animated transition
+# ---------------------------------------------------------------------------
+## Load a full composition (a built-in preset or a saved file), gliding the
+## camera framing, background, and any *surviving* object params from their
+## current values to the loaded ones over scene_env.transition_duration. The
+## ParameterPanel routes its preset dropdown / Load button through here.
+##
+## Robustness contract:
+##   - Object add/remove is always instant — CompositionIO.apply rebuilds the
+##     object list up front, and only per-slot params that exist on both the old
+##     and new object (same type, same tweenable prop) are interpolated, so
+##     switching between presets with different object counts never errors.
+##   - Only floats / colors / vector3s tween; ints, enums, bools, strings, and
+##     colormaps are structural or non-continuous, so they snap at apply time.
+##   - lock_background is respected: the background is neither captured nor
+##     tweened while locked (apply already leaves it untouched).
+##   - At duration 0 this is a plain instant apply — the original behavior.
+func apply_composition(data: Dictionary) -> void:
+	var dur: float = scene_env.transition_duration
+	if dur <= 0.0:
+		CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence)
+		return
+	var snap := _capture_transition_state()
+	CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence)
+	_run_transition(snap, dur)
+
+## Snapshot the interpolatable state (camera framing, background, and each
+## object's float/color/vector params) *before* apply swaps everything out, so
+## _run_transition can tween from here to the freshly-loaded values.
+func _capture_transition_state() -> Dictionary:
+	var snap := {
+		"cam_target": camera.target,
+		"cam_distance": camera.distance,
+		"objects": [],
+	}
+	# Only snapshot the background when it will actually change — skip while
+	# locked so we don't tween toward stale values apply left in place.
+	if not scene_env.lock_background:
+		snap["bg_color"] = scene_env.bg_color
+		snap["bg_color2"] = scene_env.bg_color2
+		snap["bloom_intensity"] = scene_env.bloom_intensity
+	for o in manager.objects:
+		snap["objects"].append({
+			"type": manager._type_label(o),
+			"params": _tweenable_params(o),
+		})
+	return snap
+
+## Current values of an object's interpolatable schema params (float / color /
+## vector3 only) keyed by name.
+func _tweenable_params(obj: Object) -> Dictionary:
+	var out := {}
+	if obj == null or not obj.has_method("get_param_schema"):
+		return out
+	for section in obj.get_param_schema():
+		for prop in section["props"]:
+			if _is_tweenable_type(prop["type"]):
+				out[prop["name"]] = obj.get(prop["name"])
+	return out
+
+func _is_tweenable_type(t: String) -> bool:
+	return t == "float" or t == "color" or t == "vector3"
+
+## Tween everything captured in `snap` from its old value to the object's
+## current (post-apply) value over `dur` seconds, on a single parallel tween
+## owned by Main.
+func _run_transition(snap: Dictionary, dur: float) -> void:
+	if _transition_tween and _transition_tween.is_valid():
+		_transition_tween.kill()
+	var tw := create_tween()  # bound to Main → processes for as long as we live
+	_transition_tween = tw
+	tw.set_parallel(true)
+	tw.set_trans(Tween.TRANS_SINE)
+	tw.set_ease(Tween.EASE_IN_OUT)
+
+	_tween_from(tw, camera, "target", snap["cam_target"], dur)
+	_tween_from(tw, camera, "distance", snap["cam_distance"], dur)
+
+	# Background only if we captured it (i.e. not locked); re-check the lock in
+	# case it was toggled during apply.
+	if snap.has("bg_color") and not scene_env.lock_background:
+		_tween_from(tw, scene_env, "bg_color", snap["bg_color"], dur)
+		_tween_from(tw, scene_env, "bg_color2", snap["bg_color2"], dur)
+		_tween_from(tw, scene_env, "bloom_intensity", snap["bloom_intensity"], dur)
+
+	# Surviving object params: match old→new by slot index + type, tween only the
+	# props present on both sides. Mismatched slots (add/remove, type change) just
+	# keep the freshly-applied values.
+	var old_objs: Array = snap["objects"]
+	for i in mini(old_objs.size(), manager.objects.size()):
+		var obj := manager.objects[i]
+		var old: Dictionary = old_objs[i]
+		if manager._type_label(obj) != old["type"]:
+			continue
+		var new_params := _tweenable_params(obj)
+		for pn in old["params"]:
+			if new_params.has(pn):
+				_tween_from(tw, obj, pn, old["params"][pn], dur)
+
+## Add one property tween: from `from_value` to the object's current value.
+func _tween_from(tw: Tween, obj: Object, prop: String, from_value: Variant, dur: float) -> void:
+	tw.tween_property(obj, prop, obj.get(prop), dur).from(from_value)

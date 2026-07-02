@@ -31,6 +31,7 @@ var _hud: Object    # HudLogo — overlay logo, rendered after audio
 var _gizmo: Object  # SelectionGizmo — selection ring toggle, rendered after hud
 var _wall: Object   # WallConfig — LED wall dimensions/resolution, rendered after gizmo
 var _influence_ctrl: Object  # InfluenceController — auto-bind toggle, rendered after wall
+var _main: Node     # Main — routes preset/composition loads through its animated transition
 var _capture: CaptureManager
 var _undo: UndoHistory
 var _obj_selector: OptionButton
@@ -51,7 +52,8 @@ var _fullscreen := false
 func setup(manager: VisualizationManager, camera: Node,
 		capture: CaptureManager = null, undo: UndoHistory = null,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null, audio: Object = null, influence_ctrl: Object = null) -> void:
+		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
+		main: Node = null) -> void:
 	_manager = manager
 	_camera = camera
 	_scene = scene
@@ -60,6 +62,7 @@ func setup(manager: VisualizationManager, camera: Node,
 	_wall = wall
 	_audio = audio
 	_influence_ctrl = influence_ctrl
+	_main = main
 	_capture = capture
 	_undo = undo
 	if not _built:
@@ -318,8 +321,17 @@ func _on_preset_selected(idx: int) -> void:
 		return
 	var names := BuiltInPresets.PRESETS.keys()
 	var data: Dictionary = BuiltInPresets.PRESETS[names[idx - 1]]
-	CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
+	_apply_composition(data)
 	_show_status("Loaded preset: " + names[idx - 1])
+
+## Route a full-composition load through Main's animated transition (camera +
+## background + surviving params glide over scene.transition_duration). Falls
+## back to an instant CompositionIO.apply if Main wasn't wired in.
+func _apply_composition(data: Dictionary) -> void:
+	if _main and _main.has_method("apply_composition"):
+		_main.apply_composition(data)
+	else:
+		CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
 
 func _open_save() -> void:
 	_ensure_dialogs()
@@ -342,7 +354,7 @@ func _do_load(path: String) -> void:
 	if data.is_empty():
 		_show_status("Load failed: empty or invalid file")
 		return
-	CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
+	_apply_composition(data)
 	_show_status("Loaded: " + path.get_file())
 
 func duplicate_selected() -> void:

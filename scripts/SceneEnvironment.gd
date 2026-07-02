@@ -48,6 +48,12 @@ var bloom_intensity: float = 0.8: set = set_bloom_intensity
 ## backdrop change. A live session preference (not serialized, not reset by
 ## reset_defaults); CompositionIO.apply reads it to gate the scene restore.
 var lock_background: bool = false
+## Seconds over which a preset/composition load glides the camera + background +
+## surviving object params from their old values to the new ones (see
+## Main.apply_composition). 0 = instant snap (the original behavior). Like
+## lock_background it's a live session preference — not serialized, not reset by
+## reset_defaults — so it persists across preset switches within a session.
+var transition_duration: float = 0.8
 
 # Lazily created sky resources, reused across mode switches.
 var _sky: Sky
@@ -247,6 +253,9 @@ func get_param_schema() -> Array:
 		"props": [
 			{"name": "lock_background", "type": "bool", "serialize": false,
 				"hint": "Keep this background when switching presets (ignore the preset's stored background)"},
+			{"name": "transition_duration", "type": "float", "min": 0.0, "max": 3.0, "step": 0.05,
+				"serialize": false,
+				"hint": "Seconds to glide the camera/background/params on preset & composition loads (0 = instant)"},
 			{"name": "background_mode", "type": "enum", "options": ["Color", "Noise", "Skybox", "Aurora"]},
 			{"name": "bg_color", "type": "color"},
 			{"name": "bg_color2", "type": "color", "hint": "Second noise color (Noise mode)"},

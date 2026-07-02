@@ -334,6 +334,29 @@ wall / audio off / auto-bind off) — note `manager.clear_all()` (which runs bef
 any module reset) already frees any influences a previous auto-bind session
 spawned.
 
+`apply` always sets the final state instantly; the *animated* preset/composition
+glide is layered on top by `Main.apply_composition` (see below), which the panel
+routes both the preset dropdown and the Load button through. CompositionIO itself
+stays stateless and has no knowledge of the tween.
+
+### Main
+Root coordinator (`Main.tscn`) — instantiates and wires every runtime system in
+`_ready()`. Beyond wiring, it owns the animated composition transition:
+`apply_composition(data)` snapshots the interpolatable state (camera
+target/distance, SceneEnvironment `bg_color`/`bg_color2`/`bloom_intensity`, and
+each managed object's float/color/vector3 params), runs `CompositionIO.apply`
+(which sets everything to its final value and rebuilds the object list), then
+tweens the snapshotted values from old→new over
+`SceneEnvironment.transition_duration` on a single parallel `Tween` created on
+Main (`SINE`/`EASE_IN_OUT`). Robustness: only `float`/`color`/`vector3` props
+tween (ints/enums/bools/strings/colormaps are structural — they snap); surviving
+object params are matched old→new by **slot index + type**, so add/remove/type
+changes just keep the freshly-applied values and differing object counts never
+error; `lock_background` skips the bg snapshot+tween; and `transition_duration`
+= 0 short-circuits to a plain instant `apply`. A new load kills any still-running
+transition tween. The ParameterPanel calls this via its `_main` reference (passed
+into `panel.setup`), falling back to a direct `CompositionIO.apply` if unset.
+
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
 Main at startup via `bind()`. Exposes the background + bloom through
@@ -369,6 +392,14 @@ The `Sky` and its two materials (noise `ShaderMaterial`, `PanoramaSkyMaterial`)
 are created lazily and reused across mode switches. `reset_defaults()` resets all
 of the above (COLOR / white room / no sky / no bloom) so a composition with no
 `"scene"` block loads clean.
+
+`lock_background` and `transition_duration` are live **session preferences**
+(`"serialize": false`, not reset by `reset_defaults`, so they persist across
+preset switches within a session). `lock_background` keeps the current backdrop
+across loads (CompositionIO.apply skips the `"scene"` restore while it's on).
+`transition_duration` (default 0.8s, 0 = instant) is read by
+`Main.apply_composition` to time the animated preset/composition glide — see the
+Main section below. Both render in the panel's Scene section but never save.
 
 ### UndoHistory
 Thin wrapper around Godot's built-in `UndoRedo`. `record_property(obj, prop,
