@@ -45,6 +45,18 @@ enum Mode { ATTRACT, REPEL }
 ## mapping (see InfluenceController._optitrack_pos).
 @export var invert_x: bool = true
 @export var invert_z: bool = false
+## Scales this influence's effective strength by (1 + speed * amount), where
+## speed is its tracked OptiTrack motion speed (world units/sec, computed by
+## InfluenceController._update_velocity). The stored `strength` is never
+## mutated — see effective_signed_strength(). 0 (default) disables the effect;
+## has no effect on untracked influences (their speed is always 0).
+@export_range(0.0, 2.0) var velocity_strength_amount: float = 0.0
+## When true, a fast motion — speed above velocity_burst_threshold — restarts
+## every PolyParticles within `radius` of this influence. A rising-edge
+## trigger: fires once per crossing, not every frame the motion stays fast.
+@export var velocity_burst: bool = false
+## Speed (world units/sec) above which velocity_burst fires.
+@export_range(0.0, 20.0) var velocity_burst_threshold: float = 2.0
 
 @export_subgroup("Connection")
 ## NatNet server (Motive host) IP. Applied to the OptiTrack autoload by
@@ -57,6 +69,10 @@ enum Mode { ATTRACT, REPEL }
 
 var _shell: MeshInstance3D
 var _core: MeshInstance3D
+## Tracked motion speed (world units/sec), written each frame by
+## InfluenceController._update_velocity for tracked influences. Not exported /
+## serialized — purely a live readout, see tracked_speed_status().
+var _tracked_speed: float = 0.0
 
 func _ready() -> void:
 	_ensure_visual()
@@ -65,6 +81,13 @@ func _ready() -> void:
 ## Signed strength: positive attracts, negative repels.
 func signed_strength() -> float:
 	return strength * (1.0 if mode == Mode.ATTRACT else -1.0)
+
+## signed_strength() scaled by the influence's current tracked motion speed
+## (velocity_strength_amount), without mutating the stored `strength`. `speed`
+## is world units/sec, supplied by InfluenceController — always 0 for
+## untracked influences, so this is a no-op for them regardless of amount.
+func effective_signed_strength(speed: float) -> float:
+	return signed_strength() * (1.0 + speed * velocity_strength_amount)
 
 func _ensure_visual() -> void:
 	if is_instance_valid(_shell):
@@ -176,6 +199,15 @@ func rigid_body_position_status() -> String:
 	var p: Vector3 = ot.call("get_rigid_body_pos", rigid_body_asset_id)
 	return "(%.3f, %.3f, %.3f)" % [p.x, p.y, p.z]
 
+## Live tracked motion speed (world units/sec), computed by InfluenceController
+## each frame from the change in streamed position. Surfaced read-only so
+## velocity_strength_amount / velocity_burst_threshold can be tuned without
+## eyeballing the 3D view. "—" when this influence isn't tracked.
+func tracked_speed_status() -> String:
+	if not track_rigid_body:
+		return "—"
+	return "%.3f u/s" % _tracked_speed
+
 ## Push the connection settings to the OptiTrack autoload and (re)connect. Safe to
 ## call with the plugin absent / autoload missing — every call is guarded, so it's
 ## simply a no-op off Windows or without Motive. Invoked by the panel's action
@@ -228,6 +260,14 @@ func get_param_schema() -> Array:
 				"hint": "Negate the streamed X axis (flip left/right) for wall alignment"},
 			{"name": "invert_z", "type": "bool",
 				"hint": "Negate the streamed Z axis (flip front/back) for wall alignment"},
+			{"name": "tracked_speed_status", "type": "status", "label": "Speed",
+				"interval": 0.1, "hint": "Live tracked motion speed (world units/sec)"},
+			{"name": "velocity_strength_amount", "type": "float", "min": 0.0, "max": 2.0, "step": 0.01,
+				"hint": "Scale effective strength by (1 + speed*amount) based on tracked motion speed — 0 disables"},
+			{"name": "velocity_burst", "type": "bool",
+				"hint": "Restart nearby particle systems (within radius) on a fast motion, once per crossing"},
+			{"name": "velocity_burst_threshold", "type": "float", "min": 0.0, "max": 20.0, "step": 0.1,
+				"hint": "Speed (world units/sec) above which velocity_burst triggers"},
 			{"name": "optitrack_server_ip", "type": "string", "hint": "Motive host IP"},
 			{"name": "optitrack_client_ip", "type": "string", "hint": "Local interface IP"},
 			{"name": "optitrack_multicast", "type": "bool", "hint": "On = multicast, off = unicast"},

@@ -32,6 +32,9 @@ var _wall: Object                 # WallConfig — physical→screen mapping for
 var _dragging: bool = false
 var _proximity: Dictionary = {}   # "infl_id:target_id" -> bool
 var _auto_bound: Dictionary = {}  # rigid_body_asset_id (int) -> InfluenceObject
+var _prev_pos: Dictionary = {}    # infl instance_id -> Vector3, tracked influences only
+var _speed: Dictionary = {}       # infl instance_id -> float (world units/sec)
+var _burst_was_over: Dictionary = {}  # infl instance_id -> bool, rising-edge state for velocity_burst
 
 func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null) -> void:
 	_manager = manager
@@ -49,11 +52,14 @@ func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null)
 func reset_defaults() -> void:
 	auto_bind_rigid_bodies = false
 	_auto_bound.clear()
+	_prev_pos.clear()
+	_speed.clear()
+	_burst_was_over.clear()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if _manager == null:
 		return
-	_update_follow()
+	_update_follow(delta)
 	_update_auto_bind()
 	_push_uniforms()
 	_update_proximity()
@@ -69,12 +75,53 @@ func _unhandled_input(event: InputEvent) -> void:
 		if infl:
 			infl.global_position = _project_mouse(infl.global_position)
 
-func _update_follow() -> void:
+func _update_follow(delta: float) -> void:
+	var tracked_ids := {}
 	for infl in _influences():
 		if infl.track_rigid_body:
-			infl.global_position = _optitrack_pos(infl)
+			var id := infl.get_instance_id()
+			tracked_ids[id] = true
+			var new_pos := _optitrack_pos(infl)
+			_update_velocity(infl, id, new_pos, delta)
+			infl.global_position = new_pos
+			_update_velocity_burst(infl, id)
 		elif infl.follow_mouse:
 			infl.global_position = _project_mouse(infl.global_position)
+	# Prune tracking state for influences that stopped being tracked (toggled off
+	# or removed) so the dictionaries don't grow stale entries forever.
+	for id in _prev_pos.keys().duplicate():
+		if not tracked_ids.has(id):
+			_prev_pos.erase(id)
+			_speed.erase(id)
+			_burst_was_over.erase(id)
+
+## Motion speed of a tracked influence, world units/sec, from the change in its
+## streamed position since last frame. Zero on the first frame it's seen (no
+## previous sample yet), so a fresh spawn / track_rigid_body toggle never reads
+## as a spurious burst of speed. Also mirrors the value onto the influence for
+## its live "Speed" status row.
+func _update_velocity(infl: InfluenceObject, id: int, new_pos: Vector3, delta: float) -> void:
+	var speed := 0.0
+	if delta > 0.0 and _prev_pos.has(id):
+		speed = (new_pos - _prev_pos[id]).length() / delta
+	_speed[id] = speed
+	_prev_pos[id] = new_pos
+	infl._tracked_speed = speed
+
+## Rising-edge trigger: when velocity_burst is on and speed crosses above
+## velocity_burst_threshold, restart every PolyParticles within this influence's
+## radius — once per crossing, so holding a fast motion doesn't reset particles
+## every single frame.
+func _update_velocity_burst(infl: InfluenceObject, id: int) -> void:
+	if not infl.velocity_burst:
+		_burst_was_over.erase(id)
+		return
+	var over: bool = _speed.get(id, 0.0) > infl.velocity_burst_threshold
+	if over and not _burst_was_over.get(id, false):
+		for target in _manager.objects:
+			if target is PolyParticles and infl.global_position.distance_to(target.global_position) < infl.radius:
+				(target as PolyParticles).restart()
+	_burst_was_over[id] = over
 
 # --- auto-bind: one influence per streamed rigid body -----------------------
 ## Keeps InfluenceObjects in 1:1 sync with the currently-streamed OptiTrack
@@ -275,7 +322,7 @@ func _push_uniforms() -> void:
 			var infl := active[i]
 			positions.append(infl.global_position)
 			radii.append(infl.radius)
-			strengths.append(infl.signed_strength())
+			strengths.append(infl.effective_signed_strength(_speed.get(infl.get_instance_id(), 0.0)))
 			colors.append(Vector3(infl.influence_color.r, infl.influence_color.g, infl.influence_color.b))
 		else:
 			positions.append(Vector3.ZERO)

@@ -164,6 +164,22 @@ effect without seeing the source. Meshes show only when `enabled and show_visual
 instead of the mouse, with the NatNet connection settings + a Connect/Reconnect
 action exposed in its panel section — see "OptiTrack motion capture" below.
 
+`velocity_strength_amount` makes a tracked influence react to its own motion
+speed: InfluenceController computes world-units/sec each frame from the change
+in streamed position (`_update_velocity`) and `effective_signed_strength(speed)`
+scales `signed_strength()` by `(1 + speed * velocity_strength_amount)` — the
+stored `strength` itself is never mutated, so it's purely a per-frame push-force
+multiplier that returns to baseline the instant the rigid body stops (speed → 0).
+0 (default) disables it; it's a no-op on untracked influences since their speed
+is always 0. `velocity_burst` (off by default) additionally restarts every
+PolyParticles within `radius` on a rising-edge crossing of
+`velocity_burst_threshold` (world units/sec) — once per crossing, not every
+frame the motion stays fast, mirroring `InfluenceController.burst_on_enter`'s
+proximity-triggered restart but keyed on speed instead. A live "Speed" status
+row (`tracked_speed_status()`, backed by `_tracked_speed` — written each frame
+by the controller, not exported/serialized) helps tune the amount/threshold
+without eyeballing the 3D view.
+
 ### InfluenceController
 Runs each frame: gathers enabled influences → packs into fixed-size arrays
 (max 8) → calls `set_influences()` on every managed object. Per influence,
@@ -175,6 +191,19 @@ fires `proximity_entered` / `proximity_exited` signals when influences cross obj
 boundaries. `burst_on_enter` (restart particles on proximity-enter) defaults OFF —
 a follow-mouse influence would otherwise reset particles constantly as it crosses
 the bounds.
+
+For each tracked influence, `_update_follow()` also calls `_update_velocity()`,
+which diffs the streamed position against `_prev_pos[instance_id]` (world units,
+0 on the first frame seen) to get speed and mirrors it onto
+`infl._tracked_speed` for the panel's status row; `_push_uniforms()` then uses
+`infl.effective_signed_strength(speed)` instead of `infl.signed_strength()` when
+packing the strength array, so InfluenceObject's `velocity_strength_amount`
+takes effect without this controller ever touching the stored `strength`.
+`_update_velocity_burst()` is the rising-edge check backing `velocity_burst`
+(speed crossing above `velocity_burst_threshold` restarts nearby PolyParticles,
+via `_burst_was_over[instance_id]`). All three per-influence dictionaries
+(`_prev_pos` / `_speed` / `_burst_was_over`) are pruned each frame for
+influences that stopped being tracked, and cleared in `reset_defaults()`.
 
 `auto_bind_rigid_bodies` (off by default) keeps InfluenceObjects in 1:1 sync with
 whatever OptiTrack rigid bodies are currently streaming, for setups with several
