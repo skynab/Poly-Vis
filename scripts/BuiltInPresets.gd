@@ -851,5 +851,72 @@ const PRESETS: Dictionary = {
 			"target": [0.0, 0.0, 0.0],
 			"distance": 8.0
 		}
+	},
+
+	"Merging Blobs": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyMetaballs",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"bounds": 12.0,
+					"blob_radius": 1.1,
+					"smoothness": 0.8,
+					"quality": 112,
+					"surface_eps": 0.01,
+					"colormap": {"preset": 5, "offsets": [], "colors": []},
+					"color_source": 1,
+					"color_min": 0.0,
+					"color_max": 3.0,
+					"base_color": [0.85, 0.2, 0.45, 1.0],
+					"posterize": false,
+					"posterize_steps": 5,
+					"contrast": 1.0,
+					"brightness": 1.3,
+					"surface_roughness": 0.35,
+					"surface_metallic": 0.1,
+					"rim_strength": 0.6,
+					"rim_power": 3.0,
+					"rim_color": [1.0, 0.9, 0.8, 1.0],
+					"translucency": 0.15
+				}
+			},
+			{
+				"type": "Influence",
+				"position": [-1.6, 0.0, 0.0],
+				"params": {
+					"enabled": true,
+					"mode": 0,
+					"radius": 2.4,
+					"strength": 2.0,
+					"influence_color": [1.0, 0.55, 0.1, 1.0],
+					"show_visual": false,
+					"follow_mouse": false
+				}
+			},
+			{
+				"type": "Influence",
+				"position": [1.6, 0.0, 0.0],
+				"params": {
+					"enabled": true,
+					"mode": 0,
+					"radius": 2.4,
+					"strength": 2.0,
+					"influence_color": [0.2, 0.6, 1.0, 1.0],
+					"show_visual": false,
+					"follow_mouse": true
+				}
+			}
+		],
+		"scene": {
+			"bg_color": [0.02, 0.02, 0.06, 1.0],
+			"bloom_enabled": true,
+			"bloom_intensity": 0.7
+		},
+		"camera": {
+			"target": [0.0, 0.0, 0.0],
+			"distance": 8.0
+		}
 	}
 }

@@ -31,7 +31,7 @@ func _scan_children() -> void:
 
 func is_managed(node: Node) -> bool:
 	return node is PolyMesh or node is PolyParticles or node is PolyCloth \
-		or node is PolyTrails or node is InfluenceObject
+		or node is PolyTrails or node is PolyMetaballs or node is InfluenceObject
 
 func add_mesh() -> Node3D:
 	return _register(PolyMesh.new())
@@ -44,6 +44,9 @@ func add_cloth() -> Node3D:
 
 func add_trails() -> Node3D:
 	return _register(PolyTrails.new())
+
+func add_metaballs() -> Node3D:
+	return _register(PolyMetaballs.new())
 
 ## `select_after` is false for influences spawned silently by
 ## InfluenceController's auto-bind (so a newly-streamed rigid body doesn't
@@ -77,6 +80,8 @@ func _type_label(obj: Node) -> String:
 		return "PolyCloth"
 	if obj is PolyTrails:
 		return "PolyTrails"
+	if obj is PolyMetaballs:
+		return "PolyMetaballs"
 	if obj is InfluenceObject:
 		return "Influence"
 	return "Object"

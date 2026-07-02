@@ -170,6 +170,29 @@ mesh/cloth shaders and fades alpha along `t` (`fade` exponent, `opacity`,
 `brightness`). Serialized like the others (schema-driven); the **Ribbon Chase**
 preset pairs it with a hidden follow-mouse influence.
 
+### PolyMetaballs
+`MeshInstance3D` (a proxy `BoxMesh`) carrying a raymarched SDF shader
+(`poly_metaballs.gdshader`) — no CPU mesh rebuild, chosen for LED-wall
+performance. Each active influence seeds one sphere in a smooth-minimum (`smin`)
+union, so as two influences move together their blobs bulge and merge into one
+surface. The shader renders back faces only (`cull_front`) so the volume is
+covered whether the camera is inside or outside the box, then **sphere-traces
+the SDF from the camera in world space** (empty space is leapt across, so the
+`quality` step cap is a ceiling, not a fixed cost), writes true scene `DEPTH` at
+the hit, and derives the normal from the SDF gradient. Blob radius per influence
+is `blob_radius * (u_influence_radius[i] / 2)` (a default radius-2 influence →
+a blob of exactly `blob_radius`); `smoothness` is the `smin` blend width.
+Because marching is world-space and influences arrive world-space via
+`set_influences()` (the shared fixed-size arrays, MAX_INFLUENCES = 8), the blobs
+track influence motion regardless of this node's transform — `bounds` (the box
+size) only has to stay big enough to contain them, else blobs clip at the faces.
+Color reuses `GradientColormap` (`color_source`: World Height / Distance /
+Normal) plus the posterize / contrast / rim / influence-tint conventions from
+`polymesh_deform.gdshader`. `quality` (max steps) and `surface_eps` are the
+GPU-cost knobs, flagged in the schema hints. Schema-driven serialization; the
+**Merging Blobs** preset seeds it with two hidden influences (one follow-mouse)
+so dragging one into the other demonstrates the merge.
+
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
 scroll wheel zooms. Exposes `get_param_schema()` so the panel shows camera
@@ -504,7 +527,7 @@ and UndoHistory. Full shortcut list in the script header comment.
 ### BuiltInPresets
 Const dictionary of CompositionIO-compatible scenes (Default, Neon Rain, Muted
 Rain, Petal Storm, Draped Silk, Sculpted Drape, Glacier Drape, Dune Drape, Crystal
-Lattice, Lava Flow, Aurora, Void Sphere, Ribbon Chase). Applied by the preset dropdown in the
+Lattice, Lava Flow, Aurora, Void Sphere, Ribbon Chase, Merging Blobs). Applied by the preset dropdown in the
 panel. Neon Rain ships a `"scene"` block (dark room + bloom) and stacks three
 PolyParticles layers — palette-colored disc rain, a `follow_influence` spark
 fountain trailing the cursor, and downward Streak rain — plus a hidden
@@ -525,7 +548,9 @@ Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
 flowing form whose folds arc apart to reveal the white room through the gaps
 between them, plus `hole_amount` punched through the sheet for torn-fabric gaps.
 Ribbon Chase is the PolyTrails showcase: ten rainbow ribbons chasing a hidden
-follow-mouse influence over a dark room with bloom.
+follow-mouse influence over a dark room with bloom. Merging Blobs is the
+PolyMetaballs showcase: two hidden influences (one static, one follow-mouse) over
+a dark room with bloom — drag the cursor into the static blob to fuse them.
 
 ---
 
@@ -574,6 +599,18 @@ so the shader only colors it: it samples the colormap by the length param `t`
 (baked into `UV.x` by the mesh builder, 0 tail → 1 head), tints toward a nearby
 influence's color by proximity (`u_influence_tint`), and fades `ALPHA =
 pow(t, u_fade) * u_opacity` so the tail dissolves. `u_brightness > 1` blooms.
+
+### poly_metaballs.gdshader (spatial)
+PolyMetaballs' raymarched SDF shader — `render_mode cull_front, diffuse_burley,
+specular_schlick_ggx, depth_draw_opaque`. Rendered on a proxy box (back faces),
+it sphere-traces `map(p)` = the `smin` union of one sphere per influence from
+`CAMERA_POSITION_WORLD` toward the fragment's world position (passed as a
+varying, since `NODE_POSITION_WORLD` is vertex-only — `v_center` is likewise a
+varying). Misses `discard`; hits write `DEPTH` (`PROJECTION_MATRIX *
+VIEW_MATRIX * hit`) and a gradient normal (converted to view space for the
+built-in lighting). Reuses the same colormap / posterize / contrast / rim /
+influence-tint uniforms as `polymesh_deform`. Cost knobs: `u_max_steps`
+(`quality`) and `u_surface_eps`; `u_max_dist` is derived from `bounds`.
 
 ---
 

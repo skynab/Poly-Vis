@@ -155,6 +155,8 @@ static func create_object(data: Dictionary, manager: VisualizationManager) -> No
 			obj = manager.add_cloth()
 		"PolyTrails":
 			obj = manager.add_trails()
+		"PolyMetaballs":
+			obj = manager.add_metaballs()
 		"Influence":
 			obj = manager.add_influence()
 		_:
