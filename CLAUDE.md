@@ -365,11 +365,37 @@ which diffs the streamed position against `_prev_pos[instance_id]` (world units,
 `infl.effective_signed_strength(speed)` instead of `infl.signed_strength()` when
 packing the strength array, so InfluenceObject's `velocity_strength_amount`
 takes effect without this controller ever touching the stored `strength`.
-`_update_velocity_burst()` is the rising-edge check backing `velocity_burst`
-(speed crossing above `velocity_burst_threshold` restarts nearby PolyParticles,
-via `_burst_was_over[instance_id]`). All three per-influence dictionaries
-(`_prev_pos` / `_speed` / `_burst_was_over`) are pruned each frame for
-influences that stopped being tracked, and cleared in `reset_defaults()`.
+`_update_velocity()` also records the full velocity **vector** in
+`_velocity[instance_id]` (world units/sec, for the direction-aware gestures below),
+alongside the scalar `_speed`. `_update_velocity_burst()` is the rising-edge check
+backing `velocity_burst` (speed crossing above `velocity_burst_threshold` restarts
+nearby PolyParticles, via `_burst_was_over[instance_id]`). All four per-influence
+dictionaries (`_prev_pos` / `_speed` / `_velocity` / `_burst_was_over`) are pruned
+each frame for influences that stopped being tracked, and cleared in
+`reset_defaults()`.
+
+**Gesture layer.** `_update_gestures()` (last step of `_process`) recognizes three
+gestures from the tracking data already computed this frame and emits a signal per
+gesture, mirroring the `proximity_entered`/`proximity_exited` style. It operates on
+the currently **tracked + enabled** influences (those with live `_prev_pos` /
+`_velocity` — a follow-mouse influence has no mocap velocity, so it isn't a gesture
+source). `push_pull(infl, direction)` (`_detect_push_pull`): the component of an
+influence's velocity along the direction to the active camera crossing
+`±push_pull_speed` — `direction` is `+1` toward the camera, `−1` away; rising-edge
+via `_push_pull_dir[id]` (re-arms when the speed drops back under threshold, a
+toward↔away flip re-fires). `clap(infl_a, infl_b)` (`_detect_clap`): every pair of
+tracked influences whose spheres collide (surface gap `distance − rₐ − r_b` below
+`clap_distance`), rising-edge per pair via `_clap_pairs["idA:idB"]`. `dwell(infl)`
+(`_detect_dwell`): an influence held within `dwell_radius` of an anchor spot for
+`dwell_seconds` — `_dwell_anchor`/`_dwell_time`/`_dwell_fired` accumulate the hold
+and latch a single emit per episode (re-anchor + reset on leaving the radius). Each
+detector prunes its own bookkeeping for influences no longer tracked, exactly like
+the tracking dictionaries. The four thresholds (`clap_distance`, `push_pull_speed`,
+`dwell_seconds`, `dwell_radius`) are `@export`ed and shown in a **Gestures** panel
+section (so they serialize with the controller under `"auto_bind"`);
+`reset_defaults()` restores them. **No consumers are wired yet** — the signals exist
+for downstream effects (a clap burst, push-to-scatter, dwell-to-select) to connect
+to, the way `_on_proximity_entered` consumes `proximity_entered`.
 
 `auto_bind_rigid_bodies` (off by default) keeps InfluenceObjects in 1:1 sync with
 whatever OptiTrack rigid bodies are currently streaming, for setups with several

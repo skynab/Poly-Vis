@@ -13,6 +13,22 @@ const MAX_INFLUENCES := 8
 signal proximity_entered(influence: InfluenceObject, target: Node3D)
 signal proximity_exited(influence: InfluenceObject, target: Node3D)
 
+# --- gesture events ---------------------------------------------------------
+# Emitted from the per-influence tracking data this controller already computes
+# (_prev_pos / _velocity / _speed + live positions), one signal per recognized
+# gesture. Nothing consumes these yet — they exist so downstream effects can
+# connect to them later (a clap burst, a push-to-scatter, a dwell-to-select),
+# mirroring how proximity_entered/exited are consumed via _on_proximity_entered.
+## A tracked influence moved toward (direction = +1) or away from (−1) the active
+## camera faster than push_pull_speed. Rising-edge: fires once per crossing.
+signal push_pull(influence: InfluenceObject, direction: int)
+## Two influences' spheres collided (surface gap fell below clap_distance). Rising-
+## edge per pair: fires once on contact, re-arms when they separate.
+signal clap(influence_a: InfluenceObject, influence_b: InfluenceObject)
+## A tracked influence held within dwell_radius of a spot for dwell_seconds. Fires
+## once per dwell episode, re-arms when the influence leaves the radius.
+signal dwell(influence: InfluenceObject)
+
 ## Demo reaction: restart a particle system when an influence enters it. Off by
 ## default — with a follow-mouse influence it would restart constantly as the
 ## influence crosses the system's bounds, visibly resetting the particles.
@@ -26,6 +42,20 @@ signal proximity_exited(influence: InfluenceObject, target: Node3D)
 ## ordinary, manually-editable influences.
 @export var auto_bind_rigid_bodies: bool = false
 
+# --- gesture thresholds (exposed in the panel, serialized with the controller) --
+## Surface-gap tolerance for a clap: the two spheres count as colliding when the
+## gap between their surfaces drops below this (0 = must actually touch; positive
+## fires slightly before contact).
+@export var clap_distance: float = 0.0
+## Camera-facing speed (world units/sec) a tracked influence must exceed for a
+## push_pull gesture.
+@export var push_pull_speed: float = 1.5
+## How long a tracked influence must stay put (within dwell_radius) to dwell.
+@export var dwell_seconds: float = 1.0
+## The "stay put" radius for a dwell — the influence may drift this far and still
+## be counted as dwelling.
+@export var dwell_radius: float = 0.15
+
 var _manager: VisualizationManager
 var _camera: Camera3D
 var _wall: Object                 # WallConfig — physical→screen mapping for tracking
@@ -34,7 +64,15 @@ var _proximity: Dictionary = {}   # "infl_id:target_id" -> bool
 var _auto_bound: Dictionary = {}  # rigid_body_asset_id (int) -> InfluenceObject
 var _prev_pos: Dictionary = {}    # infl instance_id -> Vector3, tracked influences only
 var _speed: Dictionary = {}       # infl instance_id -> float (world units/sec)
+var _velocity: Dictionary = {}    # infl instance_id -> Vector3 (world units/sec), tracked only
 var _burst_was_over: Dictionary = {}  # infl instance_id -> bool, rising-edge state for velocity_burst
+# Gesture rising-edge / accumulator bookkeeping, all keyed by influence instance_id
+# (or "idA:idB" for clap pairs) and pruned each frame for influences no longer tracked.
+var _push_pull_dir: Dictionary = {}  # infl instance_id -> int (-1/0/+1), last emitted push/pull dir
+var _clap_pairs: Dictionary = {}     # "idA:idB" -> bool, sphere-collision rising-edge state
+var _dwell_anchor: Dictionary = {}   # infl instance_id -> Vector3, current dwell spot
+var _dwell_time: Dictionary = {}     # infl instance_id -> float, seconds held near the anchor
+var _dwell_fired: Dictionary = {}    # infl instance_id -> bool, fired-once-per-episode latch
 
 func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null) -> void:
 	_manager = manager
@@ -51,10 +89,20 @@ func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null)
 ## objects before restoring any global module.
 func reset_defaults() -> void:
 	auto_bind_rigid_bodies = false
+	clap_distance = 0.0
+	push_pull_speed = 1.5
+	dwell_seconds = 1.0
+	dwell_radius = 0.15
 	_auto_bound.clear()
 	_prev_pos.clear()
 	_speed.clear()
+	_velocity.clear()
 	_burst_was_over.clear()
+	_push_pull_dir.clear()
+	_clap_pairs.clear()
+	_dwell_anchor.clear()
+	_dwell_time.clear()
+	_dwell_fired.clear()
 
 func _process(delta: float) -> void:
 	if _manager == null:
@@ -63,6 +111,7 @@ func _process(delta: float) -> void:
 	_update_auto_bind()
 	_push_uniforms()
 	_update_proximity()
+	_update_gestures(delta)
 
 # --- input: drag / follow ---------------------------------------------------
 func _unhandled_input(event: InputEvent) -> void:
@@ -100,6 +149,7 @@ func _update_follow(delta: float) -> void:
 		if not tracked_ids.has(id):
 			_prev_pos.erase(id)
 			_speed.erase(id)
+			_velocity.erase(id)
 			_burst_was_over.erase(id)
 
 ## Motion speed of a tracked influence, world units/sec, from the change in its
@@ -109,9 +159,12 @@ func _update_follow(delta: float) -> void:
 ## its live "Speed" status row.
 func _update_velocity(infl: InfluenceObject, id: int, new_pos: Vector3, delta: float) -> void:
 	var speed := 0.0
+	var vel := Vector3.ZERO
 	if delta > 0.0 and _prev_pos.has(id):
-		speed = (new_pos - _prev_pos[id]).length() / delta
+		vel = (new_pos - _prev_pos[id]) / delta
+		speed = vel.length()
 	_speed[id] = speed
+	_velocity[id] = vel   # full vector for direction-aware gestures (push_pull)
 	_prev_pos[id] = new_pos
 	infl._tracked_speed = speed
 
@@ -397,6 +450,91 @@ func _on_proximity_entered(_influence: InfluenceObject, target: Node3D) -> void:
 	if burst_on_enter and target is PolyParticles:
 		(target as PolyParticles).restart()
 
+# --- gesture detection ------------------------------------------------------
+## Recognize push/pull, clap and dwell gestures from the tracking data already
+## computed this frame, emitting a signal per gesture. Operates on the currently
+## *tracked* influences (those with live `_prev_pos`/`_velocity` from a rigid body
+## or skeleton) that are enabled — a follow-mouse influence carries no motion-capture
+## velocity, so it isn't a gesture source. Each detector prunes its own rising-edge /
+## accumulator bookkeeping for influences no longer in the tracked set, mirroring
+## `_update_follow`'s prune of the tracking dictionaries.
+func _update_gestures(delta: float) -> void:
+	var tracked: Array[InfluenceObject] = []
+	var ids := {}
+	for infl in _influences():
+		var id := infl.get_instance_id()
+		if infl.enabled and _prev_pos.has(id):
+			tracked.append(infl)
+			ids[id] = true
+	_detect_push_pull(tracked, ids)
+	_detect_dwell(tracked, delta, ids)
+	_detect_clap(tracked, ids)
+
+## Push/pull: the component of a tracked influence's velocity along the direction to
+## the active camera. When it crosses ±push_pull_speed, emit once with direction +1
+## (toward the camera) or −1 (away). Rising-edge — re-arms once the speed falls back
+## under the threshold, and a toward↔away flip re-fires immediately.
+func _detect_push_pull(tracked: Array[InfluenceObject], ids: Dictionary) -> void:
+	var cam_pos := _camera.global_position if _camera else Vector3.ZERO
+	for infl in tracked:
+		var id := infl.get_instance_id()
+		var dir_state := 0
+		var to_cam := cam_pos - infl.global_position
+		if _camera and to_cam.length() > 0.0001:
+			var comp: float = (_velocity.get(id, Vector3.ZERO) as Vector3).dot(to_cam.normalized())
+			if absf(comp) > push_pull_speed:
+				dir_state = 1 if comp > 0.0 else -1
+		if dir_state != 0 and dir_state != _push_pull_dir.get(id, 0):
+			push_pull.emit(infl, dir_state)
+		_push_pull_dir[id] = dir_state
+	for id in _push_pull_dir.keys().duplicate():
+		if not ids.has(id):
+			_push_pull_dir.erase(id)
+
+## Dwell: accumulate time while a tracked influence stays within dwell_radius of an
+## anchor spot; leaving the radius re-anchors and resets. Fires once when the held
+## time reaches dwell_seconds, latched until it leaves (so it doesn't re-fire every
+## frame it keeps holding).
+func _detect_dwell(tracked: Array[InfluenceObject], delta: float, ids: Dictionary) -> void:
+	for infl in tracked:
+		var id := infl.get_instance_id()
+		var pos := infl.global_position
+		if not _dwell_anchor.has(id) or pos.distance_to(_dwell_anchor[id]) > dwell_radius:
+			_dwell_anchor[id] = pos
+			_dwell_time[id] = 0.0
+			_dwell_fired[id] = false
+		else:
+			_dwell_time[id] = float(_dwell_time.get(id, 0.0)) + delta
+			if _dwell_time[id] >= dwell_seconds and not _dwell_fired.get(id, false):
+				dwell.emit(infl)
+				_dwell_fired[id] = true
+	for id in _dwell_anchor.keys().duplicate():
+		if not ids.has(id):
+			_dwell_anchor.erase(id)
+			_dwell_time.erase(id)
+			_dwell_fired.erase(id)
+
+## Clap: every pair of tracked influences whose spheres collide (surface gap below
+## clap_distance). Rising-edge per pair — emits once on contact, re-arms when they
+## separate.
+func _detect_clap(tracked: Array[InfluenceObject], ids: Dictionary) -> void:
+	for i in tracked.size():
+		for j in range(i + 1, tracked.size()):
+			var a := tracked[i]
+			var b := tracked[j]
+			var ia := a.get_instance_id()
+			var ib := b.get_instance_id()
+			var key := "%d:%d" % [mini(ia, ib), maxi(ia, ib)]
+			var gap := a.global_position.distance_to(b.global_position) - a.radius - b.radius
+			var colliding := gap < clap_distance
+			if colliding and not _clap_pairs.get(key, false):
+				clap.emit(a, b)
+			_clap_pairs[key] = colliding
+	for key in _clap_pairs.keys().duplicate():
+		var parts: PackedStringArray = (key as String).split(":")
+		if not ids.has(int(parts[0])) or not ids.has(int(parts[1])):
+			_clap_pairs.erase(key)
+
 ## Schema consumed by the ParameterPanel — a global module like SceneEnvironment
 ## / WallConfig, serialized by CompositionIO under "auto_bind".
 func get_param_schema() -> Array:
@@ -407,5 +545,17 @@ func get_param_schema() -> Array:
 				"hint": "Spawn/despawn one Influence per streamed OptiTrack rigid body (up to %d). Radius/strength/color are copied from the first manually-created influence; manual influences are never touched, and turning this off just stops further auto add/remove." % MAX_INFLUENCES},
 			{"name": "auto_bind_status", "type": "status", "label": "Bound",
 				"interval": 0.5, "hint": "Currently auto-bound rigid-body assets"},
+		]
+	}, {
+		"title": "Gestures",
+		"props": [
+			{"name": "clap_distance", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05,
+				"hint": "Surface-gap tolerance for a clap (0 = spheres must touch; higher fires sooner)"},
+			{"name": "push_pull_speed", "type": "float", "min": 0.1, "max": 10.0, "step": 0.1,
+				"hint": "Camera-facing speed (units/sec) a tracked influence must exceed to push/pull"},
+			{"name": "dwell_seconds", "type": "float", "min": 0.1, "max": 10.0, "step": 0.1,
+				"hint": "How long a tracked influence must hold still to dwell"},
+			{"name": "dwell_radius", "type": "float", "min": 0.01, "max": 2.0, "step": 0.01,
+				"hint": "How far the influence may drift and still count as holding still"},
 		]
 	}]
