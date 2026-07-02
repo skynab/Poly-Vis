@@ -208,9 +208,10 @@ renders a button that calls `obj.<name>()` then refreshes the object's controls;
 it stores no value and CompositionIO skips it during (de)serialization.
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
-→ capture/record → status line → hint bar → camera → scene → HUD logo → selection
-ring → LED wall → object sections. Camera/scene/hud/gizmo/wall are global modules
-in a static area; managed-object controls render in `_object_host` below them.
+→ capture/record → status line → hint bar → camera → scene → audio reactivity →
+HUD logo → selection ring → LED wall → object sections. Camera/scene/audio/hud/
+gizmo/wall are global modules in a static area; managed-object controls render in
+`_object_host` below them.
 
 ### HudLogo
 `CanvasLayer` overlay showing a logo over the front of the view. Bundles the
@@ -237,16 +238,17 @@ and shadowing it is a parse error.
 
 ### CompositionIO
 Stateless serializer. `serialize(manager, camera, scene=null, hud=null,
-gizmo=null, wall=null)` → Dictionary; `apply(data, manager, camera, scene=null,
-hud=null, gizmo=null, wall=null)` → rebuilds from Dictionary. File I/O:
-`save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`, Vector3 → `[x,y,z]`,
-enums → int, strings → as-is, colormaps → `{"preset": N, "offsets": [], "colors":
-[]}`. Camera, `scene` (SceneEnvironment), `hud` (HudLogo), `gizmo`
-(SelectionGizmo), and `wall` (WallConfig) are each serialized by walking their
-`get_param_schema()` via the shared `_schema_to_dict` / `_dict_to_schema` helpers.
-Each managed object also stores `position` + `rotation` (Euler degrees). On load,
-if a module is supplied but the composition lacks its block, `reset_defaults()`
-runs first (white room / no logo / ring off / default wall).
+gizmo=null, wall=null, audio=null)` → Dictionary; `apply(data, manager, camera,
+scene=null, hud=null, gizmo=null, wall=null, audio=null)` → rebuilds from
+Dictionary. File I/O: `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
+Vector3 → `[x,y,z]`, enums → int, strings → as-is, colormaps → `{"preset": N,
+"offsets": [], "colors": []}`. Camera, `scene` (SceneEnvironment), `hud` (HudLogo),
+`gizmo` (SelectionGizmo), `wall` (WallConfig), and `audio` (AudioReactor) are each
+serialized by walking their `get_param_schema()` via the shared `_schema_to_dict` /
+`_dict_to_schema` helpers. Each managed object also stores `position` + `rotation`
+(Euler degrees). On load, if a module is supplied but the composition lacks its
+block, `reset_defaults()` runs first (white room / no logo / ring off / default
+wall / audio off).
 
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
@@ -324,6 +326,38 @@ Y→vertical) — used by `InfluenceController._wall_to_view` to place a `map_to
 influence at the tracked object's real spot on the rendered wall (physical metres →
 screen UV → unproject onto the view plane). Like the other global modules, presets
 carry no `"wall"` block, so loading one runs `reset_defaults()` (1920×1080, 3×2 m).
+
+### AudioReactor
+`RefCounted` schema-driven global module (like SceneEnvironment/WallConfig), created
+by Main and serialized under `"audio"`. Taps a Godot `AudioEffectSpectrumAnalyzer`
+and reduces it each frame (`update(delta)`, called from `Main._process`) to three
+normalized bands — `bass`/`mid`/`treble` (20–250 Hz / 250–4000 Hz / 4000–12000 Hz,
+dB-normalized over -60..0dB, exponentially smoothed by `smoothing`, each with its own
+`*_gain`) — plus a `beat` pulse: a rising edge when `bass` exceeds
+`beat_sensitivity ×` its own rolling average, decaying back to 0. `enabled` is
+**off by default** so the app never opens a mic input uninvited. `input_source`
+picks where the analyzer taps: `SYSTEM_MIC` creates a muted private `"AudioReactor"`
+bus and an `AudioStreamPlayer` running an `AudioStreamMicrophone` stream routed to
+it — point the OS default input device at a loopback source (BlackHole / Stereo
+Mix / equivalent) to react to whatever's playing on the system; `MASTER_BUS`
+instead analyzes Poly-Vis's own `"Master"` bus (whatever the app itself plays).
+Both paths lazily attach the spectrum-analyzer effect once and reuse it across
+mode switches. `bind(host)` parents the mic `AudioStreamPlayer` (RefCounted can't
+add children itself) — mirrors `SceneEnvironment.bind(env, host)`. Like the other
+global modules, presets carry no `"audio"` block, so loading one runs
+`reset_defaults()` (audio off). `level_status()` backs a `"status"` schema row for
+a live bass/mid/treble/beat readout in the panel.
+
+`VisualizationManager.audio_reactor` holds the instance (set once by Main) and
+`_register()` wires it onto every new `PolyParticles` as `obj.audio_reactor` — the
+only current consumer. PolyParticles exposes `brightness_audio_band`
+(None/Bass/Mid/Treble) and `brightness_audio_amount`: when a band is selected,
+`_process` multiplies `particle_brightness` by `(1 + level * amount)` straight into
+the `u_particle_brightness` shader uniform each frame, without touching the stored
+`particle_brightness` value — `level` is 0 whenever no band is picked or the
+reactor is off/silent, so it's a no-op with no audio present. This is the pattern
+for adding audio reactivity to further parameters: read `audio_reactor.bass` /
+`.mid` / `.treble` (or `.beat`) in the consuming object's own `_process`.
 
 ### InputManager
 `_unhandled_key_input` handler. Delegates to VisualizationManager, panel, camera,
@@ -437,13 +471,15 @@ entirely by the schema.
   "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2 },
   "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0, "shadow_enabled": true, "shadow_color": [0.0, 0.0, 0.0, 0.5], "shadow_offset_x": 8.0, "shadow_offset_y": 8.0, "shadow_blur": 0.0 },
   "wall": { "physical_width": 3.0, "physical_height": 2.0, "pixel_width": 1920, "pixel_height": 1080, "origin": [0.0, 0.0, 0.0] },
+  "audio": { "enabled": true, "input_source": 0, "smoothing": 0.8, "bass_gain": 1.0, "mid_gain": 1.0, "treble_gain": 1.0, "beat_sensitivity": 1.3 },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-The `"scene"`, `"hud"`, and `"wall"` blocks are optional; when absent on load the
-environment resets to the default white room (no bloom), the logo turns off, and
-the wall resets to its default dimensions.
+The `"scene"`, `"hud"`, `"wall"`, and `"audio"` blocks are optional; when absent
+on load the environment resets to the default white room (no bloom), the logo
+turns off, the wall resets to its default dimensions, and audio reactivity turns
+off.
 Each object stores `"position"` and `"rotation"` (Euler degrees) alongside its
 schema `params`; `rotation` is optional (older comps without it load unrotated).
 Only parameters present in `get_param_schema()`

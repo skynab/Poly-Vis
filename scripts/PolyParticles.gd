@@ -15,6 +15,8 @@ enum ColorSource { HEIGHT, DISTANCE, AGE, VELOCITY, NOISE }
 ## Shape of each particle's draw mesh. All shapes are built at unit scale;
 ## particle_size in the shader controls actual world size.
 enum ParticleShape { SPHERE, TETRA, SHARD, DISC, SPARK, STREAK }
+## Which AudioReactor band (if any) drives brightness_audio_amount.
+enum AudioBand { NONE, BASS, MID, TREBLE }
 
 const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 
@@ -64,6 +66,10 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 ## Scalar multiplied against final particle color.  Use to brighten particles
 ## relative to the background mesh without touching the shared colormap.
 @export_range(0.0, 4.0) var particle_brightness: float = 1.0: set = set_particle_brightness
+## Audio band (if any) that modulates brightness each frame — see _process().
+## Multiplies the shader uniform only; particle_brightness itself is untouched.
+@export var brightness_audio_band: AudioBand = AudioBand.NONE
+@export_range(0.0, 4.0) var brightness_audio_amount: float = 1.0
 
 @export_group("Palette")
 ## When any palette slot is enabled, each particle takes a flat random color from
@@ -89,6 +95,9 @@ const FLOW_SHADER := preload("res://shaders/particle_flow.gdshader")
 var _mat: ShaderMaterial
 var _budget_cooldown: float = 0.0
 var _fps_samples: Array[float] = []
+## Wired by VisualizationManager._register(); null when no reactor exists yet
+## (e.g. in the editor) — audio modulation is simply a no-op then.
+var audio_reactor: AudioReactor
 
 func _ready() -> void:
 	_ensure_material()
@@ -99,6 +108,20 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if auto_budget:
 		_budget_tick(delta)
+	_apply_audio_modulation()
+
+## Multiplies particle_brightness by (1 + level*amount) straight into the
+## shader uniform, leaving the stored particle_brightness value untouched.
+## `level` is 0 whenever no band is selected or the reactor is off/silent, so
+## this is a no-op (pushes the base value back) with no audio present.
+func _apply_audio_modulation() -> void:
+	var level := 0.0
+	if brightness_audio_band != AudioBand.NONE and audio_reactor != null and audio_reactor.enabled:
+		match brightness_audio_band:
+			AudioBand.BASS: level = audio_reactor.bass
+			AudioBand.MID: level = audio_reactor.mid
+			AudioBand.TREBLE: level = audio_reactor.treble
+	_set_param("u_particle_brightness", particle_brightness * (1.0 + level * brightness_audio_amount))
 
 func _budget_tick(delta: float) -> void:
 	_budget_cooldown -= delta
@@ -536,6 +559,10 @@ func get_param_schema() -> Array:
 			{"name": "color_a", "type": "color"},
 			{"name": "color_b", "type": "color"},
 			{"name": "particle_brightness", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
+			{"name": "brightness_audio_band", "type": "enum", "options": ["None", "Bass", "Mid", "Treble"],
+				"hint": "Drive brightness from a live AudioReactor band (Global tab)"},
+			{"name": "brightness_audio_amount", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05,
+				"hint": "Strength of the audio-driven brightness boost"},
 		]},
 		{"title": "Palette", "props": [
 			{"name": "palette_enable_1", "type": "bool"},

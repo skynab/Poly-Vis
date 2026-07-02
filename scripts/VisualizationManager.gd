@@ -12,6 +12,9 @@ signal selection_changed(obj: Node3D)
 var objects: Array[Node3D] = []
 var selected: Node3D = null
 var _spawn_counter: int = 0
+## Set by Main after construction. Wired into every new PolyParticles so its
+## audio-reactive params (brightness_audio_band, etc.) can read live levels.
+var audio_reactor: AudioReactor = null
 
 func _ready() -> void:
 	_scan_children()
@@ -49,6 +52,8 @@ func _register(obj: Node3D) -> Node3D:
 	obj.name = "%s_%d" % [_type_label(obj), _spawn_counter]
 	# Offset each new object so they don't stack on the origin.
 	obj.position = Vector3(float(objects.size()) * 3.5, 0.0, 0.0)
+	if obj is PolyParticles and audio_reactor:
+		obj.audio_reactor = audio_reactor
 	add_child(obj)
 	objects.append(obj)
 	objects_changed.emit()

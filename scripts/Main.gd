@@ -19,6 +19,7 @@ var input_mgr: InputManager
 var scene_env: SceneEnvironment
 var hud_logo: HudLogo
 var wall: WallConfig
+var audio: AudioReactor
 var _fps_label: Label
 
 func _ready() -> void:
@@ -64,9 +65,16 @@ func _ready() -> void:
 	# LED wall description — physical size + resolution for real-world mapping.
 	wall = WallConfig.new()
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall)
+	# Audio reactivity — spectrum-analyzer bands feed opt-in modulated params
+	# (e.g. PolyParticles.brightness_audio_band). Off by default.
+	audio = AudioReactor.new()
+	audio.bind(self)
+	manager.audio_reactor = audio
+
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio)
 	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_fps_label.text = "FPS  %d" % Engine.get_frames_per_second()
+	audio.update(delta)

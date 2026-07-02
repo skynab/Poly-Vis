@@ -10,7 +10,7 @@ class_name CompositionIO
 # --- serialize -------------------------------------------------------------
 static func serialize(manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null) -> Dictionary:
+		wall: Object = null, audio: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
@@ -23,6 +23,8 @@ static func serialize(manager: VisualizationManager, camera: Node,
 		result["gizmo"] = _schema_to_dict(gizmo)
 	if wall and wall.has_method("get_param_schema"):
 		result["wall"] = _schema_to_dict(wall)
+	if audio and audio.has_method("get_param_schema"):
+		result["audio"] = _schema_to_dict(audio)
 	return result
 
 ## Encode every schema property of a single object into a flat Dictionary.
@@ -94,7 +96,7 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 # --- deserialize -----------------------------------------------------------
 static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null) -> void:
+		wall: Object = null, audio: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
@@ -124,6 +126,12 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		if wall.has_method("reset_defaults"):
 			wall.reset_defaults()
 		_dict_to_schema(wall, data.get("wall", {}))
+	if audio:
+		# Same pattern: presets carry no "audio" block, so a live mic/beat tap
+		# from a previous session never survives a preset/composition load.
+		if audio.has_method("reset_defaults"):
+			audio.reset_defaults()
+		_dict_to_schema(audio, data.get("audio", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 
