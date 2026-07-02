@@ -760,22 +760,35 @@ for adding audio reactivity to further parameters: read `audio_reactor.bass` /
 ### PostFX
 `RefCounted` schema-driven global module (like SceneEnvironment/WallConfig/
 AudioReactor), created by Main and serialized under `"postfx"`. A full-screen
-post-processing pass: `bind(host)` creates a `CanvasLayer` (at `layer = 0`,
-above the 3D view and below the UI panel at layer 1) holding a `BackBufferCopy`
-(`COPY_MODE_VIEWPORT`, feeds the 3D render into the screen texture) then a
-`ColorRect` running `poly_postfx.gdshader`, and parents it to `host` (RefCounted
-can't add children itself — mirrors `SceneEnvironment.bind`). Bound BEFORE
-HudLogo in `Main._ready`, so the effect processes the 3D view and the logo
-overlays on top un-graded. Like HudLogo the layer is NOT the CaptureManager's
-`ui_layer`, so the effect is baked into screenshots/recordings while the UI
-(above it) is hidden during capture and never post-processed. Effects: `vignette`
-(amount + softness), `chromatic aberration` (radial R/B split), `film grain`
+post-processing pass: `bind(host)` creates a full-screen quad `MeshInstance3D`
+(a size-2 `QuadMesh` running `poly_postfx.gdshader`, whose vertex stage writes
+clip-space POSITION directly; `extra_cull_margin` huge so it never frustum-culls,
+`render_priority = 100` so it draws after the scene's opaque geometry) and parents
+it to the active camera (falling back to `host`; RefCounted can't add children
+itself — mirrors `SceneEnvironment.bind`). It **must** be a spatial pass, not a
+CanvasLayer/ColorRect, because Godot only exposes the depth buffer
+(`hint_depth_texture`, needed for depth of field) to `spatial` shaders, not
+`canvas_item`. Bound BEFORE HudLogo in `Main._ready`; the quad renders on top of
+the 3D view, and the UI CanvasLayer (layer 1, hidden during capture by the
+CaptureManager) always sits above it — so the effect bakes into
+screenshots/recordings while the UI stays un-processed, exactly as before. Note
+`hint_screen_texture` in a 3D pass is the **opaque** render, so the pass processes
+opaque geometry and transparent objects (particles/ribbons) composite on top
+un-graded; depth of field is likewise opaque-only (transparent objects don't write
+depth), which is what a focus blur wants. Effects: `vignette` (amount + softness),
+**depth of field** (`dof_amount` + `focus_distance`/`focus_range`, world-unit focus
+via the depth buffer linearized with `INV_PROJECTION_MATRIX`), **motion blur**
+(`mb_amount`, a cheap radial/zoom blur from screen center — a stand-in for a
+per-pixel velocity pass), `chromatic aberration` (radial R/B split), `film grain`
 (animated, off `TIME`), and an optional color grade (`color_grade_enabled` +
-contrast/saturation/tint). Every effect is identity at its zero/default, so the
-master `enabled` toggle (which just shows/hides the layer, off by default) leaves
-the image untouched until a value is raised. Setters re-push all uniforms via
-`_apply()`. Chose contrast/saturation/tint over a LUT path for a self-contained
-grade. Like the other modules, presets carry no `"postfx"` block, so loading one
+contrast/saturation/tint). DoF + motion blur share one combined multi-tap gather
+(a golden-angle disc scaled by the depth circle-of-confusion, plus a radial streak),
+so at their defaults every tap lands on the same texel and the gather is skipped —
+identity. Every effect is identity at its zero/default, so the master `enabled`
+toggle (which just shows/hides the quad, off by default) leaves the image untouched
+until a value is raised. Setters re-push all uniforms via `_apply()`. Chose
+contrast/saturation/tint over a LUT path for a self-contained grade. Like the other
+modules, presets carry no `"postfx"` block, so loading one
 runs `reset_defaults()` (all effects off).
 
 ### SkeletonAutoBind
@@ -980,14 +993,24 @@ posterize / contrast / rim / `u_influence_*` uniforms as `polymesh_deform` /
 `polycloth`; color is `u_colormap` sampled by a per-blade meadow field (shaded
 base→tip) when enabled, else the `u_base_color`→`u_tip_color` gradient.
 
-### poly_postfx.gdshader (canvas_item)
-PostFX's full-screen pass. Reads the 3D render via `hint_screen_texture` (fed by
-the module's `BackBufferCopy`) and re-outputs it with vignette, chromatic
-aberration (radial R/B channel offset), film grain (animated off `TIME`, sized by
-`SCREEN_PIXEL_SIZE` so it's resolution-independent), and an optional grade
-(contrast around mid-grey → saturation → tint multiply). Each block is gated so
-its zero/default is identity. This is the only `shader_type canvas_item` shader
-in the project (the rest are `spatial`).
+### poly_postfx.gdshader (spatial)
+PostFX's full-screen pass — a `spatial` shader on a full-screen quad (`render_mode
+unshaded, depth_test_disabled, depth_draw_never, cull_disabled, fog_disabled`; the
+vertex stage writes `POSITION = vec4(VERTEX.xy, 1.0, 1.0)` for full clip-space
+coverage). Spatial (not `canvas_item`) specifically so it can sample the depth
+buffer: `hint_depth_texture` is spatial-only. Reads the opaque render via
+`hint_screen_texture` and depth via `hint_depth_texture`, and re-outputs to `ALBEDO`
+with: **depth of field** — `linear_depth()` reconstructs a world-space view distance
+through `INV_PROJECTION_MATRIX` (handles Forward+ reverse-Z, no near/far uniforms),
+and the circle-of-confusion is `clamp(|dist − u_focus_distance| / u_focus_range) *
+u_dof`; **motion blur** — a radial/zoom vector `(uv − 0.5) * u_mb` (a cheap stand-in
+for a velocity buffer). Both drive one combined gather (`sample_screen` taps on a
+golden-angle disc scaled by the CoC plus a radial streak), which is skipped when
+both are ~0. Then chromatic aberration (folded into `sample_screen`), the optional
+grade (contrast → saturation → tint), film grain (animated off `TIME`, sized by
+`VIEWPORT_SIZE`), and vignette. Each block is gated so its zero/default is identity.
+Because the screen texture is the opaque render, the pass processes opaque geometry;
+transparent objects composite over it un-graded.
 
 ---
 
@@ -1037,7 +1060,7 @@ entirely by the schema.
   "wall": { "physical_width": 3.0, "physical_height": 2.0, "pixel_width": 1920, "pixel_height": 1080, "origin": [0.0, 0.0, 0.0] },
   "audio": { "enabled": true, "input_source": 0, "smoothing": 0.8, "bass_gain": 1.0, "mid_gain": 1.0, "treble_gain": 1.0, "beat_sensitivity": 1.3 },
   "auto_bind": { "auto_bind_rigid_bodies": false },
-  "postfx": { "enabled": true, "vignette_amount": 0.4, "vignette_softness": 0.5, "aberration_amount": 0.2, "grain_amount": 0.08, "grain_speed": 1.0, "color_grade_enabled": true, "grade_contrast": 1.1, "grade_saturation": 1.2, "grade_tint": [1.0, 0.95, 0.9, 1.0] },
+  "postfx": { "enabled": true, "vignette_amount": 0.4, "vignette_softness": 0.5, "dof_amount": 0.0, "focus_distance": 6.0, "focus_range": 4.0, "mb_amount": 0.0, "aberration_amount": 0.2, "grain_amount": 0.08, "grain_speed": 1.0, "color_grade_enabled": true, "grade_contrast": 1.1, "grade_saturation": 1.2, "grade_tint": [1.0, 0.95, 0.9, 1.0] },
   "skeleton_bind": { "enabled": false, "skeleton_asset_id": 1, "bone_names": "Head, LHand, RHand, LFoot, RFoot" },
   "two_hand": { "enabled": false, "min_distance": 0.2, "max_distance": 3.0, "target": 0, "output_min": 0.0, "output_max": 2.0 },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }

@@ -8,12 +8,16 @@ extends RefCounted
 ## render nodes and parents them — mirroring SceneEnvironment.bind(env, host) and
 ## AudioReactor.bind(host).
 ##
-## The pass is a ColorRect + screen-reading shader on its OWN CanvasLayer at
-## layer 0 — above the 3D view, below the UI panel (layer 1). Like HudLogo it is
-## NOT the CaptureManager's `ui_layer`, so the effect is baked into
-## screenshots/recordings, while the UI (which sits above it) is hidden during
-## capture and never gets post-processed. A BackBufferCopy in viewport mode feeds
-## the 3D render into the shader's screen texture.
+## The pass is a full-screen quad `MeshInstance3D` running poly_postfx.gdshader (a
+## spatial shader whose vertex stage writes clip-space POSITION directly). It has to
+## be a spatial pass — not a CanvasLayer/ColorRect — because Godot only exposes the
+## depth buffer (`hint_depth_texture`, needed for depth of field) to spatial shaders.
+## The quad is parented to the camera and drawn on top of the 3D render, so it re-draws
+## the rendered image and the UI CanvasLayer (layer 1, hidden during capture) always
+## sits above it un-processed — the effect bakes into screenshots exactly as before.
+## `hint_screen_texture` in a 3D pass is the OPAQUE render, so the grade sits under any
+## transparent geometry that composites on top; depth of field is likewise opaque-only
+## (transparent objects don't write depth), which is what a focus blur wants.
 class_name PostFX
 
 const POSTFX_SHADER := preload("res://shaders/poly_postfx.gdshader")
@@ -23,6 +27,14 @@ var enabled: bool = false: set = set_enabled
 ## Edge darkening strength (0 = off) and the width of the darkened band.
 var vignette_amount: float = 0.0: set = set_vignette_amount
 var vignette_softness: float = 0.4: set = set_vignette_softness
+## Depth of field: blur pixels by how far their depth is from focus_distance.
+## amount = max blur (0 = off); focus_distance / focus_range are in world units.
+var dof_amount: float = 0.0: set = set_dof_amount
+var focus_distance: float = 6.0: set = set_focus_distance
+var focus_range: float = 4.0: set = set_focus_range
+## Motion blur — a cheap radial/zoom blur from screen center (0 = off), standing in
+## for a per-pixel velocity pass this canvas pass doesn't have.
+var mb_amount: float = 0.0: set = set_mb_amount
 ## Radial R/B channel split at the edges (0 = off).
 var aberration_amount: float = 0.0: set = set_aberration_amount
 ## Animated luminance noise (0 = off) and its temporal speed.
@@ -34,61 +46,51 @@ var grade_contrast: float = 1.0: set = set_grade_contrast
 var grade_saturation: float = 1.0: set = set_grade_saturation
 var grade_tint: Color = Color(1, 1, 1): set = set_grade_tint
 
-var _layer: CanvasLayer
-var _rect: ColorRect
+var _quad: MeshInstance3D
 var _mat: ShaderMaterial
 
-## Create the CanvasLayer + BackBufferCopy + ColorRect under `host` (Main). Added
-## before HudLogo so the effect processes the 3D view and the logo overlays on top
-## un-graded; the UI panel (layer 1) always stays above and un-processed.
+## Create the full-screen quad running the post shader and parent it to the active
+## camera (so it always fills the view and is never frustum-culled), falling back to
+## `host` (Main). Bound before HudLogo so the logo's CanvasLayer overlays it un-graded.
 func bind(host: Node) -> void:
-	if is_instance_valid(_layer):
+	if is_instance_valid(_quad):
 		return
-	_layer = CanvasLayer.new()
-	_layer.name = "PostFX"
-	_layer.layer = 0  # above the 3D view, below the UI CanvasLayer (layer 1)
-
-	# BackBufferCopy (viewport mode) copies the framebuffer-so-far — at this point
-	# just the 3D render — into the screen texture the shader reads.
-	var bbc := BackBufferCopy.new()
-	bbc.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
-	_layer.add_child(bbc)
-
 	_mat = ShaderMaterial.new()
 	_mat.shader = POSTFX_SHADER
+	# Draw after the scene's opaque geometry so hint_screen_texture sees the full
+	# opaque render before this quad re-draws it.
+	_mat.render_priority = 100
 
-	_rect = ColorRect.new()
-	_rect.name = "PostFXRect"
-	_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE  # never intercept camera input
-	_rect.material = _mat
-	_layer.add_child(_rect)
+	_quad = MeshInstance3D.new()
+	_quad.name = "PostFX"
+	var qm := QuadMesh.new()
+	qm.size = Vector2(2.0, 2.0)  # ±1 in XY → full clip space via the vertex shader
+	_quad.mesh = qm
+	_quad.material_override = _mat
+	# The vertex shader overrides POSITION, so the mesh's world AABB is irrelevant —
+	# keep it from ever being frustum-culled.
+	_quad.extra_cull_margin = 16384.0
+	_quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	host.add_child(_layer)
-	var vp := _layer.get_viewport()
-	if vp and not vp.size_changed.is_connected(_update_layout):
-		vp.size_changed.connect(_update_layout)
-	_update_layout()
+	var parent: Node = host
+	var vp := host.get_viewport()
+	if vp and vp.get_camera_3d():
+		parent = vp.get_camera_3d()
+	parent.add_child(_quad)
 	_apply()
 
-## Full-screen sizing (manual, like HudLogo — the ColorRect is a direct CanvasLayer
-## child so it has no stretching parent).
-func _update_layout() -> void:
-	if not is_instance_valid(_rect):
-		return
-	var vp := _layer.get_viewport()
-	if vp == null:
-		return
-	_rect.position = Vector2.ZERO
-	_rect.size = vp.get_visible_rect().size
-
-## Push every parameter to the shader and toggle the layer's visibility.
+## Push every parameter to the shader and toggle the quad's visibility.
 func _apply() -> void:
-	if is_instance_valid(_layer):
-		_layer.visible = enabled
+	if is_instance_valid(_quad):
+		_quad.visible = enabled
 	if _mat == null:
 		return
 	_mat.set_shader_parameter("u_vignette", vignette_amount)
 	_mat.set_shader_parameter("u_vignette_softness", vignette_softness)
+	_mat.set_shader_parameter("u_dof", dof_amount)
+	_mat.set_shader_parameter("u_focus_distance", focus_distance)
+	_mat.set_shader_parameter("u_focus_range", focus_range)
+	_mat.set_shader_parameter("u_mb", mb_amount)
 	_mat.set_shader_parameter("u_aberration", aberration_amount)
 	_mat.set_shader_parameter("u_grain", grain_amount)
 	_mat.set_shader_parameter("u_grain_speed", grain_speed)
@@ -108,6 +110,22 @@ func set_vignette_amount(v: float) -> void:
 
 func set_vignette_softness(v: float) -> void:
 	vignette_softness = v
+	_apply()
+
+func set_dof_amount(v: float) -> void:
+	dof_amount = v
+	_apply()
+
+func set_focus_distance(v: float) -> void:
+	focus_distance = v
+	_apply()
+
+func set_focus_range(v: float) -> void:
+	focus_range = v
+	_apply()
+
+func set_mb_amount(v: float) -> void:
+	mb_amount = v
 	_apply()
 
 func set_aberration_amount(v: float) -> void:
@@ -144,6 +162,10 @@ func reset_defaults() -> void:
 	enabled = false
 	vignette_amount = 0.0
 	vignette_softness = 0.4
+	dof_amount = 0.0
+	focus_distance = 6.0
+	focus_range = 4.0
+	mb_amount = 0.0
 	aberration_amount = 0.0
 	grain_amount = 0.0
 	grain_speed = 1.0
@@ -162,6 +184,14 @@ func get_param_schema() -> Array:
 				"hint": "Edge darkening strength (0 = off)"},
 			{"name": "vignette_softness", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01,
 				"hint": "Width of the darkened edge band"},
+			{"name": "dof_amount", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01,
+				"hint": "Depth of field — blur strength for out-of-focus pixels (0 = off)"},
+			{"name": "focus_distance", "type": "float", "min": 0.0, "max": 100.0, "step": 0.1,
+				"hint": "World distance kept in focus"},
+			{"name": "focus_range", "type": "float", "min": 0.1, "max": 50.0, "step": 0.1,
+				"hint": "Depth band around focus_distance that stays sharp"},
+			{"name": "mb_amount", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01,
+				"hint": "Motion blur — radial/zoom blur from screen center (0 = off)"},
 			{"name": "aberration_amount", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01,
 				"hint": "Chromatic aberration — radial R/B split at the edges (0 = off)"},
 			{"name": "grain_amount", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01,
