@@ -15,6 +15,11 @@ var _spawn_counter: int = 0
 ## Set by Main after construction. Wired into every new PolyParticles so its
 ## audio-reactive params (brightness_audio_band, etc.) can read live levels.
 var audio_reactor: AudioReactor = null
+## Set by Main after construction. When present, the user-facing add_*/
+## remove_selected route through it so each add/remove is a single undo step.
+## The undo-free spawn_*/remove() primitives never touch it, so composition
+## loads, preset applies, duplication, and auto-bind stay out of the history.
+var undo: UndoHistory = null
 
 func _ready() -> void:
 	_scan_children()
@@ -33,29 +38,59 @@ func is_managed(node: Node) -> bool:
 	return node is PolyMesh or node is PolyParticles or node is PolyCloth \
 		or node is PolyTrails or node is PolyMetaballs or node is InfluenceObject
 
-func add_mesh() -> Node3D:
+# --- undo-free spawn primitives --------------------------------------------
+# These add an object without recording an undo step. Used by CompositionIO
+# (load / preset / duplicate) and InfluenceController's auto-bind, where a batch
+# of objects appears without meaning a user "add" action.
+func spawn_mesh() -> Node3D:
 	return _register(PolyMesh.new())
 
-func add_particles() -> Node3D:
+func spawn_particles() -> Node3D:
 	return _register(PolyParticles.new())
 
-func add_cloth() -> Node3D:
+func spawn_cloth() -> Node3D:
 	return _register(PolyCloth.new())
 
-func add_trails() -> Node3D:
+func spawn_trails() -> Node3D:
 	return _register(PolyTrails.new())
 
-func add_metaballs() -> Node3D:
+func spawn_metaballs() -> Node3D:
 	return _register(PolyMetaballs.new())
 
 ## `select_after` is false for influences spawned silently by
 ## InfluenceController's auto-bind (so a newly-streamed rigid body doesn't
 ## steal the panel's selection away from whatever the user is editing).
-func add_influence(select_after: bool = true) -> Node3D:
+func spawn_influence(select_after: bool = true) -> Node3D:
 	var inf := _register(InfluenceObject.new(), select_after)
 	# Influences start in front of the origin rather than offset down the X row.
 	inf.position = Vector3(0.0, 0.0, 2.5)
 	return inf
+
+# --- user-facing adds (undoable) -------------------------------------------
+# Each spawns via the primitive above, then records a single add step so Ctrl+Z
+# removes the object and redo brings it back. No-op on undo when `undo` is unset.
+func add_mesh() -> Node3D:
+	return _record_add(spawn_mesh())
+
+func add_particles() -> Node3D:
+	return _record_add(spawn_particles())
+
+func add_cloth() -> Node3D:
+	return _record_add(spawn_cloth())
+
+func add_trails() -> Node3D:
+	return _record_add(spawn_trails())
+
+func add_metaballs() -> Node3D:
+	return _record_add(spawn_metaballs())
+
+func add_influence(select_after: bool = true) -> Node3D:
+	return _record_add(spawn_influence(select_after))
+
+func _record_add(obj: Node3D) -> Node3D:
+	if undo != null and obj != null:
+		undo.record_object_add(self, obj)
+	return obj
 
 func _register(obj: Node3D, select_after: bool = true) -> Node3D:
 	_spawn_counter += 1
@@ -86,8 +121,17 @@ func _type_label(obj: Node) -> String:
 		return "Influence"
 	return "Object"
 
+## User-facing delete of the current selection. When an undo history is present,
+## the removal is performed *through* the recorded action (so redo replays it and
+## undo restores the object from a full CompositionIO snapshot); otherwise it's a
+## plain immediate remove.
 func remove_selected() -> void:
-	remove(selected)
+	if selected == null:
+		return
+	if undo != null:
+		undo.record_object_remove(self, selected)
+	else:
+		remove(selected)
 
 ## Free a specific managed object. Unlike remove_selected(), this leaves the
 ## current selection alone when `obj` isn't the selected one — used by

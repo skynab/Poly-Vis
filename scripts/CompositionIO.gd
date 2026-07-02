@@ -156,19 +156,22 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 
 static func create_object(data: Dictionary, manager: VisualizationManager) -> Node3D:
 	var obj: Node3D = null
+	# Undo-free spawns: loading/duplicating a composition must not flood the undo
+	# history with a per-object add step (and recreation during undo/redo of a
+	# single add/remove must not nest a new action).
 	match String(data.get("type", "")):
 		"PolyMesh":
-			obj = manager.add_mesh()
+			obj = manager.spawn_mesh()
 		"PolyParticles":
-			obj = manager.add_particles()
+			obj = manager.spawn_particles()
 		"PolyCloth":
-			obj = manager.add_cloth()
+			obj = manager.spawn_cloth()
 		"PolyTrails":
-			obj = manager.add_trails()
+			obj = manager.spawn_trails()
 		"PolyMetaballs":
-			obj = manager.add_metaballs()
+			obj = manager.spawn_metaballs()
 		"Influence":
-			obj = manager.add_influence()
+			obj = manager.spawn_influence()
 		_:
 			return null
 	var p = data.get("position", null)

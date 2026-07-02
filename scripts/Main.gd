@@ -37,6 +37,9 @@ func _ready() -> void:
 	# Undo/redo history — shared by the panel and the input manager.
 	undo = UndoHistory.new()
 	undo.history_changed.connect(func(): panel.show_object(manager.selected))
+	# Route the manager's user-facing add_*/remove_selected through the history so
+	# object add/remove is undoable (the undo-free spawn_*/remove() stay untouched).
+	manager.undo = undo
 
 	# Selection gizmo — lives in the 3D world alongside visualized objects.
 	gizmo = SelectionGizmo.new()

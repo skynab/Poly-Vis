@@ -51,13 +51,29 @@ Central object registry. All managed objects (`PolyMesh`, `PolyParticles`,
 `InfluenceObject`) are direct children. Emits `objects_changed` and
 `selection_changed(obj)`.
 
-Key methods: `add_mesh()`, `add_particles()`, `add_influence(select_after=true)`,
-`remove(obj)`, `remove_selected()`, `clear_all()`, `select(obj)`. `remove(obj)`
-frees a specific managed object without disturbing the current selection unless
-`obj` was it — `remove_selected()` is just `remove(selected)`; used by
-InfluenceController's auto-bind to despawn a stale influence in the background.
-`add_influence(false)` skips the normal select-on-add for the same reason (a
-silent auto-spawn shouldn't steal panel focus).
+Adds come in two flavors. The **undo-free primitives** `spawn_mesh()`,
+`spawn_particles()`, `spawn_cloth()`, `spawn_trails()`, `spawn_metaballs()`,
+`spawn_influence(select_after=true)` register an object without touching undo
+history — used by CompositionIO (load / preset / duplicate) and
+InfluenceController's auto-bind, where a batch appears without meaning a user
+"add". The **user-facing** `add_mesh()` / `add_particles()` / `add_cloth()` /
+`add_trails()` / `add_metaballs()` / `add_influence(select_after=true)` wrap the
+matching primitive and, when `undo` is set, record a single undo step via
+`_record_add()` (see UndoHistory). `spawn_influence(false)` /
+`add_influence(false)` skip the normal select-on-add so a silent auto-spawn
+doesn't steal panel focus.
+
+Removal: `remove(obj)` is the undo-free primitive — it frees a specific managed
+object without disturbing the current selection unless `obj` was it (reselecting
+a neighbor), used by auto-bind to despawn a stale influence in the background and
+by the undo action itself. `remove_selected()` is the user-facing delete: with an
+`undo` present it routes the removal *through* a recorded action (so it's
+undoable); without one it falls back to a plain `remove(selected)`. Other key
+methods: `clear_all()`, `select(obj)`.
+
+`undo` (a `UndoHistory`, set by Main) is what gates all of the above — the
+undo-free `spawn_*`/`remove()` never reference it, so composition loads, preset
+applies, duplication, and auto-bind stay out of the history entirely.
 
 ### PolyMesh
 Procedural icosphere. Build pipeline:
@@ -475,6 +491,19 @@ old_val, new_val)` commits an action with `execute=false` (value already applied
 `history_changed` signal fires after every undo/redo; Main connects it to
 `panel.show_object(selected)` to refresh controls.
 
+`record_object_add(manager, obj)` / `record_object_remove(manager, obj)` make
+object add/remove undoable (both call the shared `_record_object`). The do/undo
+callables re-materialize the object from a `CompositionIO.serialize_object`
+snapshot on the create side and free it via `manager.remove()` on the destroy
+side; because an undone-then-freed instance can't be referenced again, the
+callables share a one-slot `holder` (the live instance, or null) and a one-slot
+`snapshot` (re-captured on every destroy, so edits made between an add and a later
+undo survive). An add commits with `execute=false` (the caller already spawned the
+object; only redo replays the create), a remove commits with `execute=true` (the
+destroy performs the actual removal now). Restoring a removed object reselects it;
+undoing an add lets `remove()` pick a sensible neighbor. The manager's user-facing
+`add_*`/`remove_selected` are the only callers.
+
 ### CaptureManager
 `capture(scale)` hides the UI layer, awaits one frame for a clean render, grabs
 the viewport image, optional Lanczos upscale, saves to `user://screenshot_*.png`.
@@ -850,8 +879,10 @@ for rigid-body tracking) to a streamed asset/bone, run.
 
 ## Known limitations / future work
 
-- Undo/redo covers parameter sliders, booleans, enums, and colors. Add/remove
-  object operations are not yet undoable.
+- Undo/redo covers parameter sliders, booleans, enums, colors, and object
+  add/remove (deleting an object then undo restores its full params + transform
+  from a CompositionIO snapshot). Duplication is not undoable (it routes through
+  the undo-free `spawn_*` path).
 - LOD rebuilds the lattice MultiMesh on level change; that rebuild is
   synchronous and may cause a single-frame hitch at transition distance.
 - Gradient-editor edits (add/remove/move/recolor a custom stop) are not undoable

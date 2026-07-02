@@ -193,7 +193,7 @@ func _claimed_asset_ids() -> Dictionary:
 ## so a hand-tuned look carries over to every auto-bound rigid body. Falls back
 ## to InfluenceObject's own defaults when no manual influence exists yet.
 func _spawn_auto_influence(asset_id: int) -> void:
-	var inf := _manager.add_influence(false) as InfluenceObject
+	var inf := _manager.spawn_influence(false) as InfluenceObject
 	var tmpl := _template_influence()
 	if tmpl:
 		inf.radius = tmpl.radius
