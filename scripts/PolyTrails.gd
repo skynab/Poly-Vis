@@ -52,6 +52,18 @@ const MAX_INFLUENCES := 8
 ## How strongly ribbons adopt the color of a nearby influence.
 @export_range(0.0, 1.0) var influence_tint: float = 0.6: set = set_influence_tint
 
+@export_group("Motion Reactivity")
+## Scale each ribbon's width by the speed of the influence it follows:
+## width *= 1 + speed * this. 0 = off. Speed comes from InfluenceController's
+## tracked-speed measurement, so only OptiTrack-driven anchors react (a still or
+## untracked anchor is speed 0 → no change).
+@export_range(0.0, 4.0) var speed_width_amount: float = 0.0: set = set_speed_width_amount
+## Scale ribbon brightness by tracked influence speed the same way. 0 = off.
+@export_range(0.0, 4.0) var speed_brightness_amount: float = 0.0: set = set_speed_brightness_amount
+## Exponential smoothing of the speed reading (0 = instant, near 1 = slow),
+## matching AudioReactor's smoothing.
+@export_range(0.0, 0.98) var speed_smoothing: float = 0.8: set = set_speed_smoothing
+
 var _mesh: ImmediateMesh
 var _mat: ShaderMaterial
 ## Per-strand committed history of world-space points (index 0 = oldest tail).
@@ -63,6 +75,12 @@ var _sample_accum: float = 0.0
 # Influence data from the last set_influences() push. Positions double as anchors.
 var _infl_count: int = 0
 var _infl_pos: PackedVector3Array = PackedVector3Array()
+## Per-influence tracked speed (world units/sec), cached from set_influences the
+## same way _infl_pos is — indexed identically so a strand's anchor speed is
+## _infl_speed[i % _infl_count].
+var _infl_speed: PackedFloat32Array = PackedFloat32Array()
+## Smoothed per-strand anchor speed, updated each frame from _infl_speed.
+var _strand_speed: PackedFloat32Array = PackedFloat32Array()
 
 func _ready() -> void:
 	_ensure_setup()
@@ -88,6 +106,8 @@ func _reset_strands() -> void:
 	_history.clear()
 	for i in strand_count:
 		_history.append(PackedVector3Array())
+	_strand_speed = PackedFloat32Array()
+	_strand_speed.resize(strand_count)  # zero-filled
 	_rebuild_offsets()
 
 ## Deterministic per-strand fan-out directions from `seed`, scaled by `spread`.
@@ -115,6 +135,20 @@ func _anchor_base(i: int) -> Vector3:
 		return _infl_pos[i % _infl_count]
 	return global_position
 
+## Raw tracked speed (world units/sec) of strand `i`'s anchor, mirroring
+## _anchor_base's index math. An attach_to node or absent influences have no
+## tracked speed, so this returns 0 (the reactivity no-ops on untracked anchors).
+func _anchor_speed(i: int) -> float:
+	if not attach_to.is_empty():
+		var n := get_node_or_null(attach_to)
+		if n is Node3D:
+			return 0.0
+	if _infl_count > 0:
+		var idx := i % _infl_count
+		if idx < _infl_speed.size():
+			return _infl_speed[idx]
+	return 0.0
+
 # --- per-frame update -------------------------------------------------------
 func _process(delta: float) -> void:
 	if _history.size() != strand_count:
@@ -141,7 +175,28 @@ func _process(delta: float) -> void:
 				hist.remove_at(0)
 		_history[i] = hist
 
+	_update_motion_speed(delta)
 	_rebuild_mesh()
+
+## Smooth each strand's anchor speed toward its live tracked value and push the
+## motion-scaled brightness into the shader per-frame (like PolyParticles'
+## brightness_audio path — the stored `brightness` is never mutated). Width is
+## applied per-strand in _rebuild_mesh from the same _strand_speed values. Both
+## no-op when their amount is 0 (multiplier collapses to 1) or the anchor is
+## untracked (speed 0).
+func _update_motion_speed(_delta: float) -> void:
+	if _strand_speed.size() != strand_count:
+		_strand_speed.resize(strand_count)
+	var a := clampf(speed_smoothing, 0.0, 0.98)
+	var max_speed := 0.0
+	for i in strand_count:
+		var raw := _anchor_speed(i)
+		var sm := lerpf(raw, _strand_speed[i], a)
+		_strand_speed[i] = sm
+		max_speed = maxf(max_speed, sm)
+	if _mat:
+		_mat.set_shader_parameter("u_brightness",
+				brightness * (1.0 + max_speed * speed_brightness_amount))
 
 ## Rebuild the ImmediateMesh: one camera-facing, width-tapered triangle strip per
 ## strand. t (0 tail → 1 head) is written into UV.x for the shader's colormap +
@@ -163,14 +218,19 @@ func _rebuild_mesh() -> void:
 		if not began:
 			_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 			began = true
+		# Motion-scaled width: the stored `width` is never mutated — the tracked
+		# anchor speed (0 when untracked, or when speed_width_amount is 0) just
+		# scales it for this frame.
+		var sp := _strand_speed[i] if i < _strand_speed.size() else 0.0
+		var w := width * (1.0 + sp * speed_width_amount)
 		# Precompute per-point local position, side offset and length param.
 		for s in n - 1:
 			var pa := pts[s]
 			var pb := pts[s + 1]
 			var ta := float(s) / float(n - 1)
 			var tb := float(s + 1) / float(n - 1)
-			var side_a := _side(pa, pb, cam_pos) * (width * 0.5 * ta)
-			var side_b := _side(pa, pb, cam_pos) * (width * 0.5 * tb)
+			var side_a := _side(pa, pb, cam_pos) * (w * 0.5 * ta)
+			var side_b := _side(pa, pb, cam_pos) * (w * 0.5 * tb)
 			# Local space so the node transform (and selection gizmo) still apply.
 			var la := to_local(pa)
 			var lb := to_local(pb)
@@ -225,9 +285,11 @@ func _apply_color() -> void:
 ## Store the influence data as anchors and push it to the shader for the tint —
 ## same fixed-size (MAX_INFLUENCES) convention as the mesh/cloth/particle shaders.
 func set_influences(count: int, positions: PackedVector3Array, radii: PackedFloat32Array,
-		strengths: PackedFloat32Array, colors: PackedVector3Array) -> void:
+		strengths: PackedFloat32Array, colors: PackedVector3Array,
+		speeds: PackedFloat32Array = PackedFloat32Array()) -> void:
 	_infl_count = count
 	_infl_pos = positions
+	_infl_speed = speeds
 	if _mat == null:
 		return
 	_mat.set_shader_parameter("u_influence_count", count)
@@ -288,6 +350,19 @@ func set_influence_tint(v: float) -> void:
 	influence_tint = v
 	_apply_color()
 
+func set_speed_width_amount(v: float) -> void:
+	speed_width_amount = v
+
+func set_speed_brightness_amount(v: float) -> void:
+	speed_brightness_amount = v
+	# Restore the stored brightness when turning reactivity off; _process re-pushes
+	# the scaled value each frame while it's on.
+	if v == 0.0:
+		_apply_color()
+
+func set_speed_smoothing(v: float) -> void:
+	speed_smoothing = v
+
 ## Schema consumed by the ParameterPanel.
 func get_param_schema() -> Array:
 	return [
@@ -306,5 +381,10 @@ func get_param_schema() -> Array:
 			{"name": "fade", "type": "float", "min": 0.1, "max": 6.0, "step": 0.05},
 			{"name": "base_color", "type": "color"},
 			{"name": "influence_tint", "type": "float", "min": 0.0, "max": 1.0, "step": 0.01},
+		]},
+		{"title": "Motion Reactivity", "props": [
+			{"name": "speed_width_amount", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
+			{"name": "speed_brightness_amount", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05},
+			{"name": "speed_smoothing", "type": "float", "min": 0.0, "max": 0.98, "step": 0.01},
 		]},
 	]
