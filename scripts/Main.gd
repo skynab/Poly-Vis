@@ -20,6 +20,7 @@ var scene_env: SceneEnvironment
 var hud_logo: HudLogo
 var wall: WallConfig
 var audio: AudioReactor
+var postfx: PostFX
 var _fps_label: Label
 ## Active preset/composition transition tween (see apply_composition). Kept so a
 ## new load can cancel a still-running glide instead of fighting it.
@@ -59,6 +60,12 @@ func _ready() -> void:
 	scene_env = SceneEnvironment.new()
 	scene_env.bind(world_env.environment, self)
 
+	# Post-processing pass — its own CanvasLayer above the 3D view, below the UI.
+	# Bound BEFORE the HUD logo so the effect processes the 3D render and the logo
+	# overlays on top un-graded. Like HudLogo it stays visible during capture.
+	postfx = PostFX.new()
+	postfx.bind(self)
+
 	# HUD logo overlay — its own CanvasLayer (kept visible during capture, so the
 	# logo watermarks screenshots/recordings). Added to Main, not $UI.
 	hud_logo = HudLogo.new()
@@ -74,7 +81,7 @@ func _ready() -> void:
 	audio.bind(self)
 	manager.audio_reactor = audio
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self)
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self, postfx)
 	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 
@@ -103,10 +110,10 @@ func _process(delta: float) -> void:
 func apply_composition(data: Dictionary) -> void:
 	var dur: float = scene_env.transition_duration
 	if dur <= 0.0:
-		CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence)
+		CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx)
 		return
 	var snap := _capture_transition_state()
-	CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence)
+	CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx)
 	_run_transition(snap, dur)
 
 ## Snapshot the interpolatable state (camera framing, background, and each

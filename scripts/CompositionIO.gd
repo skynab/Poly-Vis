@@ -10,7 +10,8 @@ class_name CompositionIO
 # --- serialize -------------------------------------------------------------
 static func serialize(manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null, audio: Object = null, influence_ctrl: Object = null) -> Dictionary:
+		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
+		postfx: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
@@ -27,6 +28,8 @@ static func serialize(manager: VisualizationManager, camera: Node,
 		result["audio"] = _schema_to_dict(audio)
 	if influence_ctrl and influence_ctrl.has_method("get_param_schema"):
 		result["auto_bind"] = _schema_to_dict(influence_ctrl)
+	if postfx and postfx.has_method("get_param_schema"):
+		result["postfx"] = _schema_to_dict(postfx)
 	return result
 
 ## Encode every schema property of a single object into a flat Dictionary.
@@ -98,7 +101,8 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 # --- deserialize -----------------------------------------------------------
 static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
-		wall: Object = null, audio: Object = null, influence_ctrl: Object = null) -> void:
+		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
+		postfx: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
@@ -141,6 +145,12 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		if influence_ctrl.has_method("reset_defaults"):
 			influence_ctrl.reset_defaults()
 		_dict_to_schema(influence_ctrl, data.get("auto_bind", {}))
+	if postfx:
+		# Same pattern: presets carry no "postfx" block, so a previous session's
+		# vignette/grain/grade never survives a preset/composition load.
+		if postfx.has_method("reset_defaults"):
+			postfx.reset_defaults()
+		_dict_to_schema(postfx, data.get("postfx", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 

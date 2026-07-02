@@ -31,6 +31,7 @@ var _hud: Object    # HudLogo — overlay logo, rendered after audio
 var _gizmo: Object  # SelectionGizmo — selection ring toggle, rendered after hud
 var _wall: Object   # WallConfig — LED wall dimensions/resolution, rendered after gizmo
 var _influence_ctrl: Object  # InfluenceController — auto-bind toggle, rendered after wall
+var _postfx: Object  # PostFX — full-screen post-processing, rendered after auto-bind
 var _main: Node     # Main — routes preset/composition loads through its animated transition
 var _capture: CaptureManager
 var _undo: UndoHistory
@@ -53,7 +54,7 @@ func setup(manager: VisualizationManager, camera: Node,
 		capture: CaptureManager = null, undo: UndoHistory = null,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
 		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
-		main: Node = null) -> void:
+		main: Node = null, postfx: Object = null) -> void:
 	_manager = manager
 	_camera = camera
 	_scene = scene
@@ -62,6 +63,7 @@ func setup(manager: VisualizationManager, camera: Node,
 	_wall = wall
 	_audio = audio
 	_influence_ctrl = influence_ctrl
+	_postfx = postfx
 	_main = main
 	_capture = capture
 	_undo = undo
@@ -215,6 +217,8 @@ func _build_base() -> void:
 		_populate(global_content, _wall, _wall.get_param_schema())
 	if _influence_ctrl and _influence_ctrl.has_method("get_param_schema"):
 		_populate(global_content, _influence_ctrl, _influence_ctrl.get_param_schema())
+	if _postfx and _postfx.has_method("get_param_schema"):
+		_populate(global_content, _postfx, _postfx.get_param_schema())
 
 	# --- Selection tab: just the selected object's controls (show_object fills it) ---
 	_object_host = _make_scroll_tab(tabs, "Selection")
@@ -333,7 +337,7 @@ func _apply_composition(data: Dictionary) -> void:
 	if _main and _main.has_method("apply_composition"):
 		_main.apply_composition(data)
 	else:
-		CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
+		CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl, _postfx)
 
 func _open_save() -> void:
 	_ensure_dialogs()
@@ -347,7 +351,7 @@ func trigger_save() -> void:
 	_open_save()
 
 func _do_save(path: String) -> void:
-	var data := CompositionIO.serialize(_manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl)
+	var data := CompositionIO.serialize(_manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl, _postfx)
 	var err := CompositionIO.save_json(path, data)
 	_show_status("Saved: " + path.get_file() if err == OK else "Save failed (%d)" % err)
 

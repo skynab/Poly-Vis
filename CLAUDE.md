@@ -34,6 +34,7 @@ Main [Node3D]                  Main.gd — root coordinator
 ├── InfluenceController        Pushes influence uniforms each frame
 ├── CaptureManager             Added at runtime — screenshot + recording
 ├── InputManager               Added at runtime — keyboard shortcuts
+├── PostFX [CanvasLayer]       Added at runtime — full-screen post pass (layer 0, in captures)
 ├── HudLogo [CanvasLayer]      Added at runtime — logo overlay (layer 0, in captures)
 │
 └── UI [CanvasLayer]           layer 1 — hidden during capture
@@ -335,9 +336,9 @@ it stores no value and CompositionIO skips it during (de)serialization.
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
 → capture/record → status line → hint bar → camera → scene → audio reactivity →
-HUD logo → selection ring → LED wall → auto-bind rigid bodies → object sections.
-Camera/scene/audio/hud/gizmo/wall/auto-bind are global modules in a static area;
-managed-object controls render in `_object_host` below them.
+HUD logo → selection ring → LED wall → auto-bind rigid bodies → post FX → object sections.
+Camera/scene/audio/hud/gizmo/wall/auto-bind/postfx are global modules in a static
+area; managed-object controls render in `_object_host` below them.
 
 ### HudLogo
 `CanvasLayer` overlay showing a logo over the front of the view. Bundles the
@@ -364,21 +365,21 @@ and shadowing it is a parse error.
 
 ### CompositionIO
 Stateless serializer. `serialize(manager, camera, scene=null, hud=null,
-gizmo=null, wall=null, audio=null, influence_ctrl=null)` → Dictionary;
+gizmo=null, wall=null, audio=null, influence_ctrl=null, postfx=null)` → Dictionary;
 `apply(data, manager, camera, scene=null, hud=null, gizmo=null, wall=null,
-audio=null, influence_ctrl=null)` → rebuilds from Dictionary. File I/O:
+audio=null, influence_ctrl=null, postfx=null)` → rebuilds from Dictionary. File I/O:
 `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
 Vector3 → `[x,y,z]`, enums → int, strings → as-is, colormaps → `{"preset": N,
 "offsets": [], "colors": []}`. Camera, `scene` (SceneEnvironment), `hud` (HudLogo),
-`gizmo` (SelectionGizmo), `wall` (WallConfig), `audio` (AudioReactor), and
-`influence_ctrl` (InfluenceController, under key `"auto_bind"`) are each
-serialized by walking their `get_param_schema()` via the shared `_schema_to_dict` /
-`_dict_to_schema` helpers. Each managed object also stores `position` + `rotation`
-(Euler degrees). On load, if a module is supplied but the composition lacks its
-block, `reset_defaults()` runs first (white room / no logo / ring off / default
-wall / audio off / auto-bind off) — note `manager.clear_all()` (which runs before
-any module reset) already frees any influences a previous auto-bind session
-spawned.
+`gizmo` (SelectionGizmo), `wall` (WallConfig), `audio` (AudioReactor),
+`influence_ctrl` (InfluenceController, under key `"auto_bind"`), and `postfx`
+(PostFX) are each serialized by walking their `get_param_schema()` via the shared
+`_schema_to_dict` / `_dict_to_schema` helpers. Each managed object also stores
+`position` + `rotation` (Euler degrees). On load, if a module is supplied but the
+composition lacks its block, `reset_defaults()` runs first (white room / no logo /
+ring off / default wall / audio off / auto-bind off / post FX off) — note
+`manager.clear_all()` (which runs before any module reset) already frees any
+influences a previous auto-bind session spawned.
 
 `apply` always sets the final state instantly; the *animated* preset/composition
 glide is layered on top by `Main.apply_composition` (see below), which the panel
@@ -520,6 +521,27 @@ reactor is off/silent, so it's a no-op with no audio present. This is the patter
 for adding audio reactivity to further parameters: read `audio_reactor.bass` /
 `.mid` / `.treble` (or `.beat`) in the consuming object's own `_process`.
 
+### PostFX
+`RefCounted` schema-driven global module (like SceneEnvironment/WallConfig/
+AudioReactor), created by Main and serialized under `"postfx"`. A full-screen
+post-processing pass: `bind(host)` creates a `CanvasLayer` (at `layer = 0`,
+above the 3D view and below the UI panel at layer 1) holding a `BackBufferCopy`
+(`COPY_MODE_VIEWPORT`, feeds the 3D render into the screen texture) then a
+`ColorRect` running `poly_postfx.gdshader`, and parents it to `host` (RefCounted
+can't add children itself — mirrors `SceneEnvironment.bind`). Bound BEFORE
+HudLogo in `Main._ready`, so the effect processes the 3D view and the logo
+overlays on top un-graded. Like HudLogo the layer is NOT the CaptureManager's
+`ui_layer`, so the effect is baked into screenshots/recordings while the UI
+(above it) is hidden during capture and never post-processed. Effects: `vignette`
+(amount + softness), `chromatic aberration` (radial R/B split), `film grain`
+(animated, off `TIME`), and an optional color grade (`color_grade_enabled` +
+contrast/saturation/tint). Every effect is identity at its zero/default, so the
+master `enabled` toggle (which just shows/hides the layer, off by default) leaves
+the image untouched until a value is raised. Setters re-push all uniforms via
+`_apply()`. Chose contrast/saturation/tint over a LUT path for a self-contained
+grade. Like the other modules, presets carry no `"postfx"` block, so loading one
+runs `reset_defaults()` (all effects off).
+
 ### InputManager
 `_unhandled_key_input` handler. Delegates to VisualizationManager, panel, camera,
 and UndoHistory. Full shortcut list in the script header comment.
@@ -612,6 +634,15 @@ built-in lighting). Reuses the same colormap / posterize / contrast / rim /
 influence-tint uniforms as `polymesh_deform`. Cost knobs: `u_max_steps`
 (`quality`) and `u_surface_eps`; `u_max_dist` is derived from `bounds`.
 
+### poly_postfx.gdshader (canvas_item)
+PostFX's full-screen pass. Reads the 3D render via `hint_screen_texture` (fed by
+the module's `BackBufferCopy`) and re-outputs it with vignette, chromatic
+aberration (radial R/B channel offset), film grain (animated off `TIME`, sized by
+`SCREEN_PIXEL_SIZE` so it's resolution-independent), and an optional grade
+(contrast around mid-grey → saturation → tint multiply). Each block is gated so
+its zero/default is identity. This is the only `shader_type canvas_item` shader
+in the project (the rest are `spatial`).
+
 ---
 
 ## How to add a new visualization type
@@ -660,14 +691,15 @@ entirely by the schema.
   "wall": { "physical_width": 3.0, "physical_height": 2.0, "pixel_width": 1920, "pixel_height": 1080, "origin": [0.0, 0.0, 0.0] },
   "audio": { "enabled": true, "input_source": 0, "smoothing": 0.8, "bass_gain": 1.0, "mid_gain": 1.0, "treble_gain": 1.0, "beat_sensitivity": 1.3 },
   "auto_bind": { "auto_bind_rigid_bodies": false },
+  "postfx": { "enabled": true, "vignette_amount": 0.4, "vignette_softness": 0.5, "aberration_amount": 0.2, "grain_amount": 0.08, "grain_speed": 1.0, "color_grade_enabled": true, "grade_contrast": 1.1, "grade_saturation": 1.2, "grade_tint": [1.0, 0.95, 0.9, 1.0] },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-The `"scene"`, `"hud"`, `"wall"`, `"audio"`, and `"auto_bind"` blocks are
-optional; when absent on load the environment resets to the default white room
+The `"scene"`, `"hud"`, `"wall"`, `"audio"`, `"auto_bind"`, and `"postfx"` blocks
+are optional; when absent on load the environment resets to the default white room
 (no bloom), the logo turns off, the wall resets to its default dimensions, audio
-reactivity turns off, and auto-bind rigid bodies turns off.
+reactivity turns off, auto-bind rigid bodies turns off, and post FX turns off.
 Each object stores `"position"` and `"rotation"` (Euler degrees) alongside its
 schema `params`; `rotation` is optional (older comps without it load unrotated).
 Only parameters present in `get_param_schema()`
