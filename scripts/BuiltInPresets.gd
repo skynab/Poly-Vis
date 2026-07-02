@@ -805,5 +805,51 @@ const PRESETS: Dictionary = {
 			"target": [0.0, 0.0, 0.0],
 			"distance": 6.5
 		}
+	},
+
+	"Ribbon Chase": {
+		"version": 1,
+		"objects": [
+			{
+				"type": "PolyTrails",
+				"position": [0.0, 0.0, 0.0],
+				"params": {
+					"strand_count": 10,
+					"segments": 90,
+					"sample_hz": 60.0,
+					"width": 0.16,
+					"spread": 0.7,
+					"seed": 7,
+					"colormap": {"preset": 6, "offsets": [], "colors": []},
+					"brightness": 2.0,
+					"opacity": 1.0,
+					"fade": 1.8,
+					"base_color": [0.2, 0.7, 1.0, 1.0],
+					"influence_tint": 0.7
+				}
+			},
+			{
+				"type": "Influence",
+				"position": [0.0, 0.0, 2.5],
+				"params": {
+					"enabled": true,
+					"mode": 0,
+					"radius": 3.0,
+					"strength": 3.0,
+					"influence_color": [1.0, 0.5, 0.1, 1.0],
+					"show_visual": false,
+					"follow_mouse": true
+				}
+			}
+		],
+		"scene": {
+			"bg_color": [0.02, 0.02, 0.05, 1.0],
+			"bloom_enabled": true,
+			"bloom_intensity": 0.8
+		},
+		"camera": {
+			"target": [0.0, 0.0, 0.0],
+			"distance": 8.0
+		}
 	}
 }

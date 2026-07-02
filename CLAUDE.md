@@ -147,6 +147,29 @@ quad center and drops the quad (skips both its triangles) when the sample exceed
 follow quad edges (low-poly torn-fabric rims); the `cull_disabled` shader shows the
 cloth underside through them. Geometry-level, so `set_hole_*` call `rebuild()`.
 
+### PolyTrails
+`MeshInstance3D` that leaves flowing, fading ribbons chasing moving anchors —
+the counterpart to the static surfaces. Maintains `strand_count` strands, each a
+short world-space history of anchor samples; `_process` glues every strand's
+head to its live anchor each frame and commits a new trailing point at
+`sample_hz` (so ribbon length is framerate-stable, not tied to render rate),
+capping history at `segments`. `_rebuild_mesh()` rebuilds a single shared
+`ImmediateMesh` each frame — one camera-facing, width-tapered triangle strip per
+strand, with the length param `t` (0 fading tail → 1 head) baked into `UV.x`. The
+"side" offset is `cross(segment_dir, to_camera)` so the flat ribbon always faces
+the `get_viewport().get_camera_3d()` (falls back to a world-up perpendicular).
+Verts are built in local space via `to_local()`, so the node transform still
+applies. Anchor per strand `i`: the `attach_to` node if set & valid, else
+`influence[i % active_count]` (positions cached from `set_influences()`), else
+the node's own position (so with nothing to follow the ribbons harmlessly
+collapse to a point — never errors). `spread` + `seed` fan strands out around a
+shared anchor via deterministic per-strand offsets (`_rebuild_offsets`). Color
+runs along the length through a shared `GradientColormap`; `poly_trails.gdshader`
+adds the influence tint using the same `u_influence_*` convention as the
+mesh/cloth shaders and fades alpha along `t` (`fade` exponent, `opacity`,
+`brightness`). Serialized like the others (schema-driven); the **Ribbon Chase**
+preset pairs it with a hidden follow-mouse influence.
+
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
 scroll wheel zooms. Exposes `get_param_schema()` so the panel shows camera
@@ -481,7 +504,7 @@ and UndoHistory. Full shortcut list in the script header comment.
 ### BuiltInPresets
 Const dictionary of CompositionIO-compatible scenes (Default, Neon Rain, Muted
 Rain, Petal Storm, Draped Silk, Sculpted Drape, Glacier Drape, Dune Drape, Crystal
-Lattice, Lava Flow, Aurora, Void Sphere). Applied by the preset dropdown in the
+Lattice, Lava Flow, Aurora, Void Sphere, Ribbon Chase). Applied by the preset dropdown in the
 panel. Neon Rain ships a `"scene"` block (dark room + bloom) and stacks three
 PolyParticles layers — palette-colored disc rain, a `follow_influence` spark
 fountain trailing the cursor, and downward Streak rain — plus a hidden
@@ -501,6 +524,8 @@ Sculpted Drape is the dramatic one: high `amplitude`/`warp`/
 `curvature_amount` and fine `resolution` give the heavily-crumpled, ribbon-like
 flowing form whose folds arc apart to reveal the white room through the gaps
 between them, plus `hole_amount` punched through the sheet for torn-fabric gaps.
+Ribbon Chase is the PolyTrails showcase: ten rainbow ribbons chasing a hidden
+follow-mouse influence over a dark room with bloom.
 
 ---
 
@@ -539,6 +564,16 @@ radial direction (coherent on a plane); color decisions use the baked
 object-space normal varying `v_face_n` (camera-stable), while lighting uses the
 derivative normal. Adds `u_cool_color`/`u_cool_strength`/`u_cool_dir` for the
 warm/cool facet split, and reads baked height-noise + fold magnitude from `UV2`.
+
+### poly_trails.gdshader (spatial)
+PolyTrails' ribbon shader — `render_mode cull_disabled, unshaded, blend_mix,
+depth_draw_never`. Shares the colormap (`u_colormap`/`u_use_colormap`/
+`u_base_color`) and influence (`u_influence_*`, fixed size 8) conventions with
+the mesh/cloth shaders, but the geometry is a CPU-built per-frame `ImmediateMesh`
+so the shader only colors it: it samples the colormap by the length param `t`
+(baked into `UV.x` by the mesh builder, 0 tail → 1 head), tints toward a nearby
+influence's color by proximity (`u_influence_tint`), and fades `ALPHA =
+pow(t, u_fade) * u_opacity` so the tail dissolves. `u_brightness > 1` blooms.
 
 ---
 
