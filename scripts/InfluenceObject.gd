@@ -23,11 +23,25 @@ enum Mode { ATTRACT, REPEL }
 @export_group("OptiTrack")
 ## When true the influence's position is driven by an OptiTrack rigid body
 ## streamed from Motive (via the OptiTrack autoload). Takes priority over
-## follow_mouse. No-op if the plugin isn't installed or Motive isn't connected.
+## follow_mouse, but yields to track_skeleton_bone. No-op if the plugin isn't
+## installed or Motive isn't connected.
 @export var track_rigid_body: bool = false
 ## Motive asset ID of the rigid body to follow (matches the OptiTrackRigidBody
 ## node's Rigid Body Asset ID). 999 == unassigned.
 @export var rigid_body_asset_id: int = 1
+## When true the influence's position is driven by a specific bone of an
+## OptiTrack skeleton streamed from Motive (skeleton_asset_id +
+## skeleton_bone_name), resolved via OptiTrackSkeletonUtil. Takes priority over
+## both track_rigid_body and follow_mouse. No-op if the plugin isn't installed,
+## Motive isn't connected, or the asset/bone isn't found.
+@export var track_skeleton_bone: bool = false
+## Motive asset ID of the skeleton to track (matches the OptiTrackSkeleton
+## node's Skeleton Asset ID).
+@export var skeleton_asset_id: int = 1
+## Name of the bone to follow within the skeleton (must match a key of
+## OptiTrack.get_skeleton_bone_data(skeleton_asset_id), e.g. "Hip", "RHand",
+## "Head" for Motive's default biped skeleton).
+@export var skeleton_bone_name: String = "Hip"
 ## Added to the streamed position — maps Motive's origin to a point in the scene.
 @export var track_position_offset: Vector3 = Vector3.ZERO
 ## When true the streamed position is flattened onto the plane the camera is
@@ -199,12 +213,52 @@ func rigid_body_position_status() -> String:
 	var p: Vector3 = ot.call("get_rigid_body_pos", rigid_body_asset_id)
 	return "(%.3f, %.3f, %.3f)" % [p.x, p.y, p.z]
 
+## Human-readable OptiTrack skeleton connection state, mirroring
+## connection_status() but for track_skeleton_bone: distinguishes "not
+## connected", "asset not streaming", "bone not found on this skeleton", and
+## "connected". Fully guarded so it's a safe no-op without the plugin.
+func skeleton_connection_status() -> String:
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null or not ot.has_method("is_connected_to_motive"):
+		return "Not Connected (plugin unavailable)"
+	if not ot.call("is_connected_to_motive"):
+		return "Not Connected"
+	if ot.has_method("get_skeleton_assets"):
+		var assets: Dictionary = ot.call("get_skeleton_assets")
+		if not assets.has(skeleton_asset_id):
+			return "Connected (asset %d not found)" % skeleton_asset_id
+	if ot.has_method("get_skeleton_bone_data"):
+		var bones: Dictionary = ot.call("get_skeleton_bone_data", skeleton_asset_id)
+		if bones.is_empty():
+			return "Connected (no bone data)"
+		if not bones.has(skeleton_bone_name):
+			return "Connected (bone \"%s\" not found)" % skeleton_bone_name
+		return "Skeleton Connected — bone \"%s\"" % skeleton_bone_name
+	return "Connected"
+
+## Live resolved world-space position of skeleton_bone_name, surfaced read-only
+## the same way rigid_body_position_status() is. Resolved via
+## OptiTrackSkeletonUtil (see that file for why a bone's world position needs
+## walking the hierarchy rather than reading its raw streamed position).
+## Returns "—" when there's nothing to show.
+func skeleton_bone_position_status() -> String:
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null or not ot.has_method("get_skeleton_bone_data"):
+		return "—"
+	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
+		return "—"
+	var bones: Dictionary = ot.call("get_skeleton_bone_data", skeleton_asset_id)
+	if bones.is_empty() or not bones.has(skeleton_bone_name):
+		return "—"
+	var p := OptiTrackSkeletonUtil.bone_world_position(bones, skeleton_bone_name)
+	return "(%.3f, %.3f, %.3f)" % [p.x, p.y, p.z]
+
 ## Live tracked motion speed (world units/sec), computed by InfluenceController
 ## each frame from the change in streamed position. Surfaced read-only so
 ## velocity_strength_amount / velocity_burst_threshold can be tuned without
 ## eyeballing the 3D view. "—" when this influence isn't tracked.
 func tracked_speed_status() -> String:
-	if not track_rigid_body:
+	if not track_rigid_body and not track_skeleton_bone:
 		return "—"
 	return "%.3f u/s" % _tracked_speed
 
@@ -251,6 +305,17 @@ func get_param_schema() -> Array:
 			{"name": "track_rigid_body", "type": "bool"},
 			{"name": "rigid_body_asset_id", "type": "int_field", "min": 0, "max": 9999, "step": 1,
 				"hint": "Motive asset ID of the rigid body to follow"},
+			{"name": "skeleton_connection_status", "type": "status", "label": "Skeleton Status",
+				"hint": "Live OptiTrack skeleton connection / bone tracking state"},
+			{"name": "skeleton_bone_position_status", "type": "status", "label": "Bone Position",
+				"interval": 0.1,
+				"hint": "Live resolved world-space position of the tracked bone (Godot space)"},
+			{"name": "track_skeleton_bone", "type": "bool",
+				"hint": "Drive this influence from a chosen skeleton bone — takes priority over track_rigid_body and follow_mouse"},
+			{"name": "skeleton_asset_id", "type": "int_field", "min": 0, "max": 9999, "step": 1,
+				"hint": "Motive asset ID of the skeleton to track"},
+			{"name": "skeleton_bone_name", "type": "string",
+				"hint": "Bone to follow, e.g. \"Hip\", \"RHand\", \"Head\" (must match the skeleton's bone names)"},
 			{"name": "track_position_offset", "type": "vector3"},
 			{"name": "project_to_view", "type": "bool",
 				"hint": "Lock the tracked position to a projection onto the current view"},

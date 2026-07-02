@@ -163,6 +163,12 @@ effect without seeing the source. Meshes show only when `enabled and show_visual
 (`rigid_body_asset_id` + `track_position_offset`, optionally `project_to_view`)
 instead of the mouse, with the NatNet connection settings + a Connect/Reconnect
 action exposed in its panel section — see "OptiTrack motion capture" below.
+`track_skeleton_bone = true` instead drives it from one named bone of a
+streamed OptiTrack skeleton (`skeleton_asset_id` + `skeleton_bone_name`,
+resolved via `OptiTrackSkeletonUtil` — see below) and takes priority over both
+`track_rigid_body` and `follow_mouse`; it shares the same
+`track_position_offset` / `invert_x` / `invert_z` / `project_to_view` /
+`map_to_wall` handling as the rigid-body path.
 
 `velocity_strength_amount` makes a tracked influence react to its own motion
 speed: InfluenceController computes world-units/sec each frame from the change
@@ -183,8 +189,12 @@ without eyeballing the 3D view.
 ### InfluenceController
 Runs each frame: gathers enabled influences → packs into fixed-size arrays
 (max 8) → calls `set_influences()` on every managed object. Per influence,
-`_update_follow()` positions it from an OptiTrack rigid body (`track_rigid_body`,
-via `_optitrack_pos()`), else from the mouse (`follow_mouse`). A PolyParticles with
+`_update_follow()` positions it from a skeleton bone (`track_skeleton_bone`, via
+`_skeleton_pos()`), else an OptiTrack rigid body (`track_rigid_body`, via
+`_optitrack_pos()`), else from the mouse (`follow_mouse`). Both OptiTrack paths
+funnel their raw streamed position through the shared `_apply_tracking_transform()`
+(invert_x/z, then map_to_wall / offset+project_to_view) so the mapping options
+behave identically regardless of source. A PolyParticles with
 `follow_influence` is instead moved to the active influence's position and gets a
 0-count (no force). Also handles left-mouse drag on the selected influence and
 fires `proximity_entered` / `proximity_exited` signals when influences cross object
@@ -240,6 +250,17 @@ changes so dependent shaders refresh.
 Static-only CPU port of the Ashima 3D simplex noise (`snoise3`) that the spatial
 shaders use. Lets CPU-animated geometry (PolyMesh's `animate_lattice`) match the
 GPU-animated surface, which calls the identical `snoise` in the shader.
+
+### OptiTrackSkeletonUtil
+Static-only helper that resolves one named bone's world-space position from the
+Dictionary `OptiTrack.get_skeleton_bone_data(asset_id)` returns (bone_name →
+`[id, parent_id, position, rotation]`; see `optitrack_skeleton.gd`). Only the
+root bone's position/rotation is already in world space — every other bone's is
+relative to its parent — so `bone_world_position()` walks the hierarchy from the
+root down to the target bone, composing a `Transform3D` at each step, and
+returns its origin. Used by `InfluenceController._skeleton_pos()` to drive a
+`track_skeleton_bone` influence, and by `InfluenceObject.skeleton_bone_position_status()`
+for the panel's live readout.
 
 ### ParameterPanel
 Auto-generates controls from `get_param_schema()` arrays. Schema format:
@@ -563,18 +584,28 @@ MotiveClient`) plus the editor sub-plugins (control panel + custom node types).
 Windows x86_64 **debug** DLL only (`bin/`), so it streams when run from the
 editor; an exported release build would need a release DLL not shipped here.
 
-Autoload API used by Poly-Vis (all defensive — see `_optitrack_pos`):
-`is_connected_to_motive() -> bool`, `get_rigid_body_pos(asset_id) -> Vector3`
-(already in Godot space), `get_rigid_body_rot(asset_id) -> Quaternion`,
-`set_server_address/set_client_address/set_multicast`, `connect_to_motive` /
-`disconnect_from_motive`.
+Autoload API used by Poly-Vis (all defensive — see `_optitrack_pos` /
+`_skeleton_pos`): `is_connected_to_motive() -> bool`,
+`get_rigid_body_pos(asset_id) -> Vector3` (already in Godot space),
+`get_rigid_body_rot(asset_id) -> Quaternion`, `get_rigid_body_assets() ->
+Dictionary` (asset id → Motive name), `get_skeleton_assets() -> Dictionary`
+(asset id → Motive name), `get_skeleton_bone_data(asset_id) -> Dictionary`
+(bone name → `[id, parent_id, position, rotation]` — position/rotation are
+world-space only for the root bone, parent-relative for every other bone; see
+`OptiTrackSkeletonUtil` above), `set_server_address/set_client_address/
+set_multicast`, `connect_to_motive` / `disconnect_from_motive`.
 
 Integration: an `InfluenceObject` with `track_rigid_body = true` has its world
 position driven by `OptiTrack.get_rigid_body_pos(rigid_body_asset_id) +
 track_position_offset`, evaluated each frame in `InfluenceController._update_follow`
-(priority over `follow_mouse`). The lookup is guarded with
-`get_node_or_null("/root/OptiTrack")` + `has_method` + connection checks, so the
-app runs normally with the plugin absent, on non-Windows, or with Motive offline
+(priority over `follow_mouse`). One with `track_skeleton_bone = true` instead has
+its position driven by `OptiTrackSkeletonUtil.bone_world_position()` on
+`OptiTrack.get_skeleton_bone_data(skeleton_asset_id)[skeleton_bone_name]`
+(`InfluenceController._skeleton_pos`), taking priority over both
+`track_rigid_body` and `follow_mouse`. Both lookups are guarded with
+`get_node_or_null("/root/OptiTrack")` + `has_method` + connection checks (plus,
+for skeletons, an asset/bone-presence check), so the app runs normally with the
+plugin absent, on non-Windows, or with Motive/the given asset or bone offline
 — the influence just holds position.
 
 The influence's "OptiTrack" panel section (`get_param_schema`) carries the
@@ -590,11 +621,21 @@ screen space with locked depth. `map_to_wall = true` (takes priority over
 `project_to_view`) instead maps the physical position through `WallConfig` — real
 metres → wall pixel → view plane (`_wall_to_view`) — so the influence lines up with
 the object's actual position in front of the LED wall; calibrate via the panel's
-**LED Wall** section (physical size, resolution, origin). The editor's OptiTrack
-dock + `optitrack_settings.tres` remain the other place to configure the connection.
-To use: open in the editor, set the influence's IPs / transport and click Connect /
-Reconnect (or use the OptiTrack dock), set `rigid_body_asset_id` to a streamed
-asset, run.
+**LED Wall** section (physical size, resolution, origin). `invert_x`/`invert_z`,
+`track_position_offset`, `project_to_view`, and `map_to_wall` all apply equally
+to `track_skeleton_bone` (via the shared `_apply_tracking_transform` helper), so
+a skeleton-driven influence can be wall-mapped or view-locked exactly like a
+rigid-body one. The editor's OptiTrack dock + `optitrack_settings.tres` remain
+the other place to configure the connection.
+
+`skeleton_asset_id` (`int_field`) + `skeleton_bone_name` (`string`, e.g. `"Hip"`,
+`"RHand"`, `"Head"` — must match a key of `get_skeleton_bone_data`) pick the
+joint; **Skeleton Status** / **Bone Position** status rows mirror the rigid-body
+ones for live debugging. To use: open in the editor, add an `OptiTrackSkeleton`
+node for the asset (or otherwise ensure Motive is streaming it), set the
+influence's IPs / transport and click Connect / Reconnect (or use the OptiTrack
+dock), set `skeleton_asset_id` + `skeleton_bone_name` (or `rigid_body_asset_id`
+for rigid-body tracking) to a streamed asset/bone, run.
 
 ---
 

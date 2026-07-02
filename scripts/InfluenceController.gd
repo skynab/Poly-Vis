@@ -78,7 +78,14 @@ func _unhandled_input(event: InputEvent) -> void:
 func _update_follow(delta: float) -> void:
 	var tracked_ids := {}
 	for infl in _influences():
-		if infl.track_rigid_body:
+		if infl.track_skeleton_bone:
+			var id := infl.get_instance_id()
+			tracked_ids[id] = true
+			var new_pos := _skeleton_pos(infl)
+			_update_velocity(infl, id, new_pos, delta)
+			infl.global_position = new_pos
+			_update_velocity_burst(infl, id)
+		elif infl.track_rigid_body:
 			var id := infl.get_instance_id()
 			tracked_ids[id] = true
 			var new_pos := _optitrack_pos(infl)
@@ -228,8 +235,30 @@ func _optitrack_pos(infl: InfluenceObject) -> Vector3:
 	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
 		return infl.global_position
 	var raw: Vector3 = ot.call("get_rigid_body_pos", infl.rigid_body_asset_id)
-	# Mirror the streamed axes if Motive's X / Z run opposite the view, so motion
-	# lines up with the wall. Applied to the raw position before offset / mapping.
+	return _apply_tracking_transform(infl, raw)
+
+## Position of infl.skeleton_bone_name within infl.skeleton_asset_id's streamed
+## skeleton, resolved to world space via OptiTrackSkeletonUtil (a bone's raw
+## streamed data is parent-relative, unlike a rigid body's). Defensive like
+## _optitrack_pos: holds the influence's current position when the plugin, the
+## connection, the asset, or the named bone isn't available.
+func _skeleton_pos(infl: InfluenceObject) -> Vector3:
+	var ot := get_node_or_null("/root/OptiTrack")
+	if ot == null or not ot.has_method("get_skeleton_bone_data"):
+		return infl.global_position
+	if ot.has_method("is_connected_to_motive") and not ot.call("is_connected_to_motive"):
+		return infl.global_position
+	var bones: Dictionary = ot.call("get_skeleton_bone_data", infl.skeleton_asset_id)
+	if bones.is_empty() or not bones.has(infl.skeleton_bone_name):
+		return infl.global_position
+	var raw := OptiTrackSkeletonUtil.bone_world_position(bones, infl.skeleton_bone_name)
+	return _apply_tracking_transform(infl, raw)
+
+## Shared tail of the tracking pipeline for both a rigid body and a skeleton
+## bone: mirror the streamed axes if Motive's X / Z run opposite the view (so
+## motion lines up with the wall), then either map through the LED wall, or
+## apply the per-influence offset and optionally flatten onto the view plane.
+func _apply_tracking_transform(infl: InfluenceObject, raw: Vector3) -> Vector3:
 	if infl.invert_x:
 		raw.x = -raw.x
 	if infl.invert_z:
