@@ -512,9 +512,9 @@ not routed through UndoHistory (see Known limitations).
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
 → capture/record → status line → hint bar → camera → scene → audio reactivity →
 HUD logo → selection ring → LED wall → auto-bind rigid bodies → auto-bind skeleton
-→ post FX → performance (render scale) → object sections.
-Camera/scene/audio/hud/gizmo/wall/auto-bind/skeleton-bind/postfx/perf are global
-modules in a static area; managed-object controls render in `_object_host` below
+→ two-hand control → post FX → performance (render scale) → object sections.
+Camera/scene/audio/hud/gizmo/wall/auto-bind/skeleton-bind/two-hand/postfx/perf are
+global modules in a static area; managed-object controls render in `_object_host` below
 them.
 
 ### HudLogo
@@ -543,16 +543,17 @@ and shadowing it is a parse error.
 ### CompositionIO
 Stateless serializer. `serialize(manager, camera, scene=null, hud=null,
 gizmo=null, wall=null, audio=null, influence_ctrl=null, postfx=null,
-skel_bind=null)` → Dictionary;
+skel_bind=null, two_hand=null)` → Dictionary;
 `apply(data, manager, camera, scene=null, hud=null, gizmo=null, wall=null,
-audio=null, influence_ctrl=null, postfx=null, skel_bind=null)` → rebuilds from
-Dictionary. File I/O:
+audio=null, influence_ctrl=null, postfx=null, skel_bind=null, two_hand=null)` →
+rebuilds from Dictionary. File I/O:
 `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
 Vector3 → `[x,y,z]`, enums → int, strings → as-is, colormaps → `{"preset": N,
 "offsets": [], "colors": []}`. Camera, `scene` (SceneEnvironment), `hud` (HudLogo),
 `gizmo` (SelectionGizmo), `wall` (WallConfig), `audio` (AudioReactor),
 `influence_ctrl` (InfluenceController, under key `"auto_bind"`), `postfx`
-(PostFX), and `skel_bind` (SkeletonAutoBind, under key `"skeleton_bind"`) are each
+(PostFX), `skel_bind` (SkeletonAutoBind, under key `"skeleton_bind"`), and
+`two_hand` (TwoHandControl, under key `"two_hand"`) are each
 serialized by walking their `get_param_schema()` via the shared
 `_schema_to_dict` / `_dict_to_schema` helpers. Each managed object also stores
 `position` + `rotation` (Euler degrees). On load, if a module is supplied but the
@@ -805,6 +806,28 @@ RFoot"`), parsed by `_bone_list()` (trimmed, de-duplicated, blanks dropped);
 bound" status row. Like the other global modules, presets carry no
 `"skeleton_bind"` block, so loading one runs `reset_defaults()` (off).
 
+### TwoHandControl
+`RefCounted` schema-driven global module (like WallConfig/AudioReactor), created by
+Main (`two_hand`, `setup(manager, scene_env)`) and serialized under `"two_hand"`.
+While `enabled`, `update()` (called each frame from `Main._process`) measures the
+distance between the **two nearest enabled tracked influences** (`track_rigid_body`
+or `track_skeleton_bone`; the closest pair when more than two exist, −1 if fewer
+than two), normalizes it over `[min_distance, max_distance]`, expands that 0..1 into
+`[output_min, output_max]`, and drives a chosen `target`: `Bloom` (scene glow),
+`Metaball Radius` / `Cloth Amplitude` (the selected `PolyMetaballs` / `PolyCloth`),
+or `Global Scale` (uniform scale on the selected `Node3D`). Application is
+**non-destructive, exactly like the audio-band pattern** — it writes the *live*
+representation (`SceneEnvironment.env.glow_intensity`, the object's shader uniform
+`u_blob_radius` / `u_anim_amplitude` via its `_mat` / `_surface_mat`, or the node
+transform) and never the stored/serialized parameter, so the modulation is invisible
+to CompositionIO and reverts the instant it disengages. `_release()` returns the live
+value to the authored one (re-derived from the untouched stored value, or a cached
+base scale) whenever the control is disabled, the target/selection changes, or
+`reset_defaults()` runs — and only `Global Scale` needs the cached base since scale
+isn't a schema param. A `distance_status()` row shows the live distance → mapped
+value. Presets carry no `"two_hand"` block, so loading one runs `reset_defaults()`
+(off, releasing any override first).
+
 ### InputManager
 `_unhandled_key_input` handler. Delegates to VisualizationManager, panel, camera,
 and UndoHistory. Full shortcut list in the script header comment.
@@ -1016,16 +1039,17 @@ entirely by the schema.
   "auto_bind": { "auto_bind_rigid_bodies": false },
   "postfx": { "enabled": true, "vignette_amount": 0.4, "vignette_softness": 0.5, "aberration_amount": 0.2, "grain_amount": 0.08, "grain_speed": 1.0, "color_grade_enabled": true, "grade_contrast": 1.1, "grade_saturation": 1.2, "grade_tint": [1.0, 0.95, 0.9, 1.0] },
   "skeleton_bind": { "enabled": false, "skeleton_asset_id": 1, "bone_names": "Head, LHand, RHand, LFoot, RFoot" },
+  "two_hand": { "enabled": false, "min_distance": 0.2, "max_distance": 3.0, "target": 0, "output_min": 0.0, "output_max": 2.0 },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-The `"scene"`, `"hud"`, `"wall"`, `"audio"`, `"auto_bind"`, `"postfx"`, and
-`"skeleton_bind"` blocks
+The `"scene"`, `"hud"`, `"wall"`, `"audio"`, `"auto_bind"`, `"postfx"`,
+`"skeleton_bind"`, and `"two_hand"` blocks
 are optional; when absent on load the environment resets to the default white room
 (no bloom), the logo turns off, the wall resets to its default dimensions, audio
-reactivity turns off, auto-bind rigid bodies turns off, post FX turns off, and
-skeleton auto-bind turns off.
+reactivity turns off, auto-bind rigid bodies turns off, post FX turns off,
+skeleton auto-bind turns off, and two-hand control turns off.
 Each object stores `"position"` and `"rotation"` (Euler degrees) alongside its
 schema `params`; `rotation` is optional (older comps without it load unrotated).
 Only parameters present in `get_param_schema()`

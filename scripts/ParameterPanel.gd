@@ -32,7 +32,8 @@ var _gizmo: Object  # SelectionGizmo — selection ring toggle, rendered after h
 var _wall: Object   # WallConfig — LED wall dimensions/resolution, rendered after gizmo
 var _influence_ctrl: Object  # InfluenceController — auto-bind toggle, rendered after wall
 var _skel_bind: Object  # SkeletonAutoBind — bone auto-bind toggle, rendered after auto-bind
-var _postfx: Object  # PostFX — full-screen post-processing, rendered after skeleton auto-bind
+var _two_hand: Object  # TwoHandControl — hand-distance parameter driver, rendered after skeleton auto-bind
+var _postfx: Object  # PostFX — full-screen post-processing, rendered after two-hand control
 var _perf: Object   # RenderScale — 3D render-scale / performance, rendered after postfx
 var _main: Node     # Main — routes preset/composition loads through its animated transition
 var _capture: CaptureManager
@@ -57,7 +58,7 @@ func setup(manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
 		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
 		main: Node = null, postfx: Object = null, perf: Object = null,
-		skel_bind: Object = null) -> void:
+		skel_bind: Object = null, two_hand: Object = null) -> void:
 	_manager = manager
 	_camera = camera
 	_scene = scene
@@ -67,6 +68,7 @@ func setup(manager: VisualizationManager, camera: Node,
 	_audio = audio
 	_influence_ctrl = influence_ctrl
 	_skel_bind = skel_bind
+	_two_hand = two_hand
 	_postfx = postfx
 	_perf = perf
 	_main = main
@@ -228,6 +230,8 @@ func _build_base() -> void:
 		_populate(global_content, _influence_ctrl, _influence_ctrl.get_param_schema())
 	if _skel_bind and _skel_bind.has_method("get_param_schema"):
 		_populate(global_content, _skel_bind, _skel_bind.get_param_schema())
+	if _two_hand and _two_hand.has_method("get_param_schema"):
+		_populate(global_content, _two_hand, _two_hand.get_param_schema())
 	if _postfx and _postfx.has_method("get_param_schema"):
 		_populate(global_content, _postfx, _postfx.get_param_schema())
 	if _perf and _perf.has_method("get_param_schema"):
@@ -350,7 +354,7 @@ func _apply_composition(data: Dictionary) -> void:
 	if _main and _main.has_method("apply_composition"):
 		_main.apply_composition(data)
 	else:
-		CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl, _postfx, _skel_bind)
+		CompositionIO.apply(data, _manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl, _postfx, _skel_bind, _two_hand)
 
 func _open_save() -> void:
 	_ensure_dialogs()
@@ -364,7 +368,7 @@ func trigger_save() -> void:
 	_open_save()
 
 func _do_save(path: String) -> void:
-	var data := CompositionIO.serialize(_manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl, _postfx, _skel_bind)
+	var data := CompositionIO.serialize(_manager, _camera, _scene, _hud, _gizmo, _wall, _audio, _influence_ctrl, _postfx, _skel_bind, _two_hand)
 	var err := CompositionIO.save_json(path, data)
 	_show_status("Saved: " + path.get_file() if err == OK else "Save failed (%d)" % err)
 

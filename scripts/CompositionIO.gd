@@ -11,7 +11,7 @@ class_name CompositionIO
 static func serialize(manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
 		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
-		postfx: Object = null, skel_bind: Object = null) -> Dictionary:
+		postfx: Object = null, skel_bind: Object = null, two_hand: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
@@ -32,6 +32,8 @@ static func serialize(manager: VisualizationManager, camera: Node,
 		result["postfx"] = _schema_to_dict(postfx)
 	if skel_bind and skel_bind.has_method("get_param_schema"):
 		result["skeleton_bind"] = _schema_to_dict(skel_bind)
+	if two_hand and two_hand.has_method("get_param_schema"):
+		result["two_hand"] = _schema_to_dict(two_hand)
 	return result
 
 ## Encode every schema property of a single object into a flat Dictionary.
@@ -104,7 +106,7 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
 		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
-		postfx: Object = null, skel_bind: Object = null) -> void:
+		postfx: Object = null, skel_bind: Object = null, two_hand: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
@@ -160,6 +162,12 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		if skel_bind.has_method("reset_defaults"):
 			skel_bind.reset_defaults()
 		_dict_to_schema(skel_bind, data.get("skeleton_bind", {}))
+	if two_hand:
+		# Same pattern: presets carry no "two_hand" block, so the two-hand control
+		# resets off on load (releasing any live parameter override first).
+		if two_hand.has_method("reset_defaults"):
+			two_hand.reset_defaults()
+		_dict_to_schema(two_hand, data.get("two_hand", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 

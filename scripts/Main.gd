@@ -23,6 +23,7 @@ var audio: AudioReactor
 var postfx: PostFX
 var render_scale: RenderScale
 var skel_bind: SkeletonAutoBind
+var two_hand: TwoHandControl
 var _fps_label: Label
 ## Active preset/composition transition tween (see apply_composition). Kept so a
 ## new load can cancel a still-running glide instead of fighting it.
@@ -98,7 +99,13 @@ func _ready() -> void:
 	skel_bind = SkeletonAutoBind.new()
 	skel_bind.setup(manager)
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self, postfx, render_scale, skel_bind)
+	# Two-hand distance control — maps the gap between two tracked influences onto a
+	# chosen parameter (bloom / metaball radius / cloth amplitude / global scale).
+	# Off by default; ticked each frame in _process.
+	two_hand = TwoHandControl.new()
+	two_hand.setup(manager, scene_env)
+
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self, postfx, render_scale, skel_bind, two_hand)
 	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 
@@ -107,6 +114,7 @@ func _process(delta: float) -> void:
 	audio.update(delta)
 	render_scale.update(delta)
 	skel_bind.update()
+	two_hand.update(delta)
 
 # ---------------------------------------------------------------------------
 # Composition loading with an optional animated transition
@@ -129,10 +137,10 @@ func _process(delta: float) -> void:
 func apply_composition(data: Dictionary) -> void:
 	var dur: float = scene_env.transition_duration
 	if dur <= 0.0:
-		CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx, skel_bind)
+		CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx, skel_bind, two_hand)
 		return
 	var snap := _capture_transition_state()
-	CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx, skel_bind)
+	CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx, skel_bind, two_hand)
 	_run_transition(snap, dur)
 
 ## Snapshot the interpolatable state (camera framing, background, and each
