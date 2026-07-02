@@ -181,6 +181,8 @@ static func create_object(data: Dictionary, manager: VisualizationManager) -> No
 			obj = manager.spawn_metaballs()
 		"PolyStrands":
 			obj = manager.spawn_strands()
+		"PolyBoids":
+			obj = manager.spawn_boids()
 		"Influence":
 			obj = manager.spawn_influence()
 		_:

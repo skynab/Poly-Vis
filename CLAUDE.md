@@ -53,11 +53,12 @@ Central object registry. All managed objects (`PolyMesh`, `PolyParticles`,
 
 Adds come in two flavors. The **undo-free primitives** `spawn_mesh()`,
 `spawn_particles()`, `spawn_cloth()`, `spawn_trails()`, `spawn_metaballs()`,
-`spawn_strands()`, `spawn_influence(select_after=true)` register an object without
+`spawn_strands()`, `spawn_boids()`, `spawn_influence(select_after=true)` register
+an object without
 touching undo history — used by CompositionIO (load / preset / duplicate) and
 InfluenceController's auto-bind, where a batch appears without meaning a user
 "add". The **user-facing** `add_mesh()` / `add_particles()` / `add_cloth()` /
-`add_trails()` / `add_metaballs()` / `add_strands()` /
+`add_trails()` / `add_metaballs()` / `add_strands()` / `add_boids()` /
 `add_influence(select_after=true)` wrap the
 matching primitive and, when `undo` is set, record a single undo step via
 `_record_add()` (see UndoHistory). `spawn_influence(false)` /
@@ -234,6 +235,29 @@ fallback; plus the standard posterize / contrast / rim conventions. Setters mirr
 PolyCloth — geometry params (`density`, `extent`, `blade_length`, `blade_width`,
 `seed`) call `rebuild()`, motion/color params are cheap uniform pushes
 (`_push_motion` / `_apply_color_and_polish`). Schema-driven serialization.
+
+### PolyBoids
+`GPUParticles3D` with a custom `shader_type particles` process material
+(`poly_boids.gdshader`) — the same engine substrate as PolyParticles, but the
+motion is **boid flocking** instead of a curl-noise flow. A particle shader can't
+read other particles' state, so the three Reynolds rules are approximated from
+shared noise fields keyed off `neighbor_radius` (the flock's characteristic
+length): **alignment** follows the local `curl_noise` heading (neighbours sample a
+near-identical field, so they travel together), **cohesion** ascends a
+low-frequency scalar `grad_noise` field toward the local flock centre, and
+**separation** descends a high-frequency one so crowded boids spread apart. The
+three weighted rules steer VELOCITY, which is then capped at `max_speed`; `drag`
+damps it and `wander_speed` scrolls the fields so flocks drift. Influences act as
+**attractors** (+strength, gather) or **predators** (−strength, flee) through the
+shared fixed-size (8) `u_influence_*` arrays and `set_influences()`. The shader
+orients each particle's mesh so its long +Y axis points along the boid's heading
+(so Shard/Streak read as arrows). Reuses PolyParticles' emitter shapes,
+`particle_shape` draw meshes, colormap / `color_a`-`color_b` / palette / brightness
+(+ `brightness_audio_band`) color paths, and the `auto_budget` FPS-scaling
+(`_budget_tick`). It is **not** a PolyParticles subclass (both extend
+GPUParticles3D independently), so `VisualizationManager._register` wires the
+`audio_reactor` onto `PolyParticles or PolyBoids`, and `_type_label` matches it
+separately. Schema-driven serialization.
 
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
@@ -627,8 +651,9 @@ global modules, presets carry no `"audio"` block, so loading one runs
 a live bass/mid/treble/beat readout in the panel.
 
 `VisualizationManager.audio_reactor` holds the instance (set once by Main) and
-`_register()` wires it onto every new `PolyParticles` as `obj.audio_reactor` — the
-only current consumer. PolyParticles exposes `brightness_audio_band`
+`_register()` wires it onto every new `PolyParticles` or `PolyBoids` as
+`obj.audio_reactor` — the
+current consumers. Both expose `brightness_audio_band`
 (None/Bass/Mid/Treble) and `brightness_audio_amount`: when a band is selected,
 `_process` multiplies `particle_brightness` by `(1 + level * amount)` straight into
 the `u_particle_brightness` shader uniform each frame, without touching the stored
@@ -746,6 +771,20 @@ Influence fields attract (+) or accelerate particles away (−). Color priority 
 `process()`: `u_palette[6]` (when `u_palette_count > 0`, flat per-particle pick via
 the seed `CUSTOM.x`) → colormap → `u_color_a`/`u_color_b` lerp; then influence
 tint, then `u_particle_brightness`.
+
+### poly_boids.gdshader (particles)
+PolyBoids' flocking motion — same `shader_type particles` scaffolding as
+`particle_flow` (identical `start()`, emitter shapes, `snoise`/`curl_noise`, hash
+RNG, and color/palette/influence blocks) but `process()` replaces the flow steer
+with the three boid rules approximated from shared fields (no cross-particle reads
+are possible): `curl_noise(pos / u_neighbor_radius)` for **alignment**,
+`grad_noise` of a low-freq field for **cohesion**, `-grad_noise` of a high-freq
+field for **separation**, summed by `u_alignment`/`u_cohesion`/`u_separation`,
+added to VELOCITY and clamped to `u_max_speed` (with `u_drag` damping and
+`u_wander_speed` scrolling the fields). `u_influence_strength` is signed the same
+way — `+` accelerates toward (attractor), `−` away (predator). Unlike
+`particle_flow`'s Z-spin, the TRANSFORM basis is rebuilt each frame with the mesh's
+`+Y` axis along VELOCITY so elongated shapes point where the boid is heading.
 
 ### polycloth.gdshader (spatial)
 PolyCloth's surface shader. Shares the colormap / posterize / contrast /

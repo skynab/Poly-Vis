@@ -37,7 +37,7 @@ func _scan_children() -> void:
 func is_managed(node: Node) -> bool:
 	return node is PolyMesh or node is PolyParticles or node is PolyCloth \
 		or node is PolyTrails or node is PolyMetaballs or node is PolyStrands \
-		or node is InfluenceObject
+		or node is PolyBoids or node is InfluenceObject
 
 # --- undo-free spawn primitives --------------------------------------------
 # These add an object without recording an undo step. Used by CompositionIO
@@ -60,6 +60,9 @@ func spawn_metaballs() -> Node3D:
 
 func spawn_strands() -> Node3D:
 	return _register(PolyStrands.new())
+
+func spawn_boids() -> Node3D:
+	return _register(PolyBoids.new())
 
 ## `select_after` is false for influences spawned silently by
 ## InfluenceController's auto-bind (so a newly-streamed rigid body doesn't
@@ -91,6 +94,9 @@ func add_metaballs() -> Node3D:
 func add_strands() -> Node3D:
 	return _record_add(spawn_strands())
 
+func add_boids() -> Node3D:
+	return _record_add(spawn_boids())
+
 func add_influence(select_after: bool = true) -> Node3D:
 	return _record_add(spawn_influence(select_after))
 
@@ -104,7 +110,7 @@ func _register(obj: Node3D, select_after: bool = true) -> Node3D:
 	obj.name = "%s_%d" % [_type_label(obj), _spawn_counter]
 	# Offset each new object so they don't stack on the origin.
 	obj.position = Vector3(float(objects.size()) * 3.5, 0.0, 0.0)
-	if obj is PolyParticles and audio_reactor:
+	if (obj is PolyParticles or obj is PolyBoids) and audio_reactor:
 		obj.audio_reactor = audio_reactor
 	add_child(obj)
 	objects.append(obj)
@@ -126,6 +132,8 @@ func _type_label(obj: Node) -> String:
 		return "PolyMetaballs"
 	if obj is PolyStrands:
 		return "PolyStrands"
+	if obj is PolyBoids:
+		return "PolyBoids"
 	if obj is InfluenceObject:
 		return "Influence"
 	return "Object"
