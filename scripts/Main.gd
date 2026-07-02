@@ -22,6 +22,7 @@ var wall: WallConfig
 var audio: AudioReactor
 var postfx: PostFX
 var render_scale: RenderScale
+var skel_bind: SkeletonAutoBind
 var _fps_label: Label
 ## Active preset/composition transition tween (see apply_composition). Kept so a
 ## new load can cancel a still-running glide instead of fighting it.
@@ -91,7 +92,13 @@ func _ready() -> void:
 	audio.bind(self)
 	manager.audio_reactor = audio
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self, postfx, render_scale)
+	# Skeleton auto-bind — one influence per named OptiTrack skeleton bone, the
+	# skeleton counterpart to InfluenceController.auto_bind_rigid_bodies. Off by
+	# default; ticked each frame in _process.
+	skel_bind = SkeletonAutoBind.new()
+	skel_bind.setup(manager)
+
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self, postfx, render_scale, skel_bind)
 	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 
@@ -99,6 +106,7 @@ func _process(delta: float) -> void:
 	_fps_label.text = "FPS  %d" % Engine.get_frames_per_second()
 	audio.update(delta)
 	render_scale.update(delta)
+	skel_bind.update()
 
 # ---------------------------------------------------------------------------
 # Composition loading with an optional animated transition
@@ -121,10 +129,10 @@ func _process(delta: float) -> void:
 func apply_composition(data: Dictionary) -> void:
 	var dur: float = scene_env.transition_duration
 	if dur <= 0.0:
-		CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx)
+		CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx, skel_bind)
 		return
 	var snap := _capture_transition_state()
-	CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx)
+	CompositionIO.apply(data, manager, camera, scene_env, hud_logo, gizmo, wall, audio, influence, postfx, skel_bind)
 	_run_transition(snap, dur)
 
 ## Snapshot the interpolatable state (camera framing, background, and each

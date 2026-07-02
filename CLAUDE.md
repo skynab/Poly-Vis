@@ -368,10 +368,11 @@ not routed through UndoHistory (see Known limitations).
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
 → capture/record → status line → hint bar → camera → scene → audio reactivity →
-HUD logo → selection ring → LED wall → auto-bind rigid bodies → post FX →
-performance (render scale) → object sections.
-Camera/scene/audio/hud/gizmo/wall/auto-bind/postfx/perf are global modules in a
-static area; managed-object controls render in `_object_host` below them.
+HUD logo → selection ring → LED wall → auto-bind rigid bodies → auto-bind skeleton
+→ post FX → performance (render scale) → object sections.
+Camera/scene/audio/hud/gizmo/wall/auto-bind/skeleton-bind/postfx/perf are global
+modules in a static area; managed-object controls render in `_object_host` below
+them.
 
 ### HudLogo
 `CanvasLayer` overlay showing a logo over the front of the view. Bundles the
@@ -398,21 +399,24 @@ and shadowing it is a parse error.
 
 ### CompositionIO
 Stateless serializer. `serialize(manager, camera, scene=null, hud=null,
-gizmo=null, wall=null, audio=null, influence_ctrl=null, postfx=null)` → Dictionary;
+gizmo=null, wall=null, audio=null, influence_ctrl=null, postfx=null,
+skel_bind=null)` → Dictionary;
 `apply(data, manager, camera, scene=null, hud=null, gizmo=null, wall=null,
-audio=null, influence_ctrl=null, postfx=null)` → rebuilds from Dictionary. File I/O:
+audio=null, influence_ctrl=null, postfx=null, skel_bind=null)` → rebuilds from
+Dictionary. File I/O:
 `save_json` / `load_json`. Encoding: colors → `[r,g,b,a]`,
 Vector3 → `[x,y,z]`, enums → int, strings → as-is, colormaps → `{"preset": N,
 "offsets": [], "colors": []}`. Camera, `scene` (SceneEnvironment), `hud` (HudLogo),
 `gizmo` (SelectionGizmo), `wall` (WallConfig), `audio` (AudioReactor),
-`influence_ctrl` (InfluenceController, under key `"auto_bind"`), and `postfx`
-(PostFX) are each serialized by walking their `get_param_schema()` via the shared
+`influence_ctrl` (InfluenceController, under key `"auto_bind"`), `postfx`
+(PostFX), and `skel_bind` (SkeletonAutoBind, under key `"skeleton_bind"`) are each
+serialized by walking their `get_param_schema()` via the shared
 `_schema_to_dict` / `_dict_to_schema` helpers. Each managed object also stores
 `position` + `rotation` (Euler degrees). On load, if a module is supplied but the
 composition lacks its block, `reset_defaults()` runs first (white room / no logo /
-ring off / default wall / audio off / auto-bind off / post FX off) — note
-`manager.clear_all()` (which runs before any module reset) already frees any
-influences a previous auto-bind session spawned.
+ring off / default wall / audio off / auto-bind off / post FX off / skeleton
+auto-bind off) — note `manager.clear_all()` (which runs before any module reset)
+already frees any influences a previous auto-bind session spawned.
 
 `apply` always sets the final state instantly; the *animated* preset/composition
 glide is layered on top by `Main.apply_composition` (see below), which the panel
@@ -617,6 +621,34 @@ the image untouched until a value is raised. Setters re-push all uniforms via
 grade. Like the other modules, presets carry no `"postfx"` block, so loading one
 runs `reset_defaults()` (all effects off).
 
+### SkeletonAutoBind
+`RefCounted` schema-driven global module (like WallConfig/AudioReactor), created
+by Main (`skel_bind`, `setup(manager)`) and serialized under `"skeleton_bind"`.
+The skeleton counterpart to `InfluenceController.auto_bind_rigid_bodies`: while
+`enabled`, `update()` (called each frame from `Main._process`) keeps one
+`InfluenceObject` bound to each named bone of a streamed OptiTrack skeleton. It
+reads `OptiTrack.get_skeleton_bone_data(skeleton_asset_id)` through
+`_live_bones()`, guarded exactly like `InfluenceController._skeleton_pos`
+(`get_node_or_null("/root/OptiTrack")` + `has_method` + `is_connected_to_motive`,
+then a per-bone presence check), so it's a no-op without the plugin, on
+non-Windows, with Motive/the asset offline, or a bone not streaming. Each frame it
+**despawns** (`VisualizationManager.remove()`) any influence it spawned whose bone
+stopped streaming or left the list, then **spawns** one influence per wanted bone
+that is streaming and nothing already tracks (`spawn_influence(false)` — undo-free,
+matching `_update_auto_bind`, so the background spawn stays out of the undo history
+and doesn't steal panel selection), setting `track_skeleton_bone = true` +
+`skeleton_asset_id` + `skeleton_bone_name` and copying radius/strength/color from a
+template (the first manually-created influence, else `InfluenceObject` defaults).
+Manually-created influences — and their own `track_skeleton_bone` assignments — are
+never spawned or despawned by this; a bone is "claimed" (left alone) if any
+influence already tracks it on the same `skeleton_asset_id`. Spawning stops once the
+total influence count hits `MAX_INFLUENCES` (8). `bone_names` is a `string` schema
+prop holding a comma-separated bone list (default `"Head, LHand, RHand, LFoot,
+RFoot"`), parsed by `_bone_list()` (trimmed, de-duplicated, blanks dropped);
+`skeleton_asset_id` uses the `int_field` control. `bound_status()` backs a live "N
+bound" status row. Like the other global modules, presets carry no
+`"skeleton_bind"` block, so loading one runs `reset_defaults()` (off).
+
 ### InputManager
 `_unhandled_key_input` handler. Delegates to VisualizationManager, panel, camera,
 and UndoHistory. Full shortcut list in the script header comment.
@@ -767,14 +799,17 @@ entirely by the schema.
   "audio": { "enabled": true, "input_source": 0, "smoothing": 0.8, "bass_gain": 1.0, "mid_gain": 1.0, "treble_gain": 1.0, "beat_sensitivity": 1.3 },
   "auto_bind": { "auto_bind_rigid_bodies": false },
   "postfx": { "enabled": true, "vignette_amount": 0.4, "vignette_softness": 0.5, "aberration_amount": 0.2, "grain_amount": 0.08, "grain_speed": 1.0, "color_grade_enabled": true, "grade_contrast": 1.1, "grade_saturation": 1.2, "grade_tint": [1.0, 0.95, 0.9, 1.0] },
+  "skeleton_bind": { "enabled": false, "skeleton_asset_id": 1, "bone_names": "Head, LHand, RHand, LFoot, RFoot" },
   "camera": { "target": [0.0, 0.0, 0.0], "distance": 6.0 }
 }
 ```
 
-The `"scene"`, `"hud"`, `"wall"`, `"audio"`, `"auto_bind"`, and `"postfx"` blocks
+The `"scene"`, `"hud"`, `"wall"`, `"audio"`, `"auto_bind"`, `"postfx"`, and
+`"skeleton_bind"` blocks
 are optional; when absent on load the environment resets to the default white room
 (no bloom), the logo turns off, the wall resets to its default dimensions, audio
-reactivity turns off, auto-bind rigid bodies turns off, and post FX turns off.
+reactivity turns off, auto-bind rigid bodies turns off, post FX turns off, and
+skeleton auto-bind turns off.
 Each object stores `"position"` and `"rotation"` (Euler degrees) alongside its
 schema `params`; `rotation` is optional (older comps without it load unrotated).
 Only parameters present in `get_param_schema()`

@@ -11,7 +11,7 @@ class_name CompositionIO
 static func serialize(manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
 		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
-		postfx: Object = null) -> Dictionary:
+		postfx: Object = null, skel_bind: Object = null) -> Dictionary:
 	var objs: Array = []
 	for o in manager.objects:
 		objs.append(serialize_object(o, manager._type_label(o)))
@@ -30,6 +30,8 @@ static func serialize(manager: VisualizationManager, camera: Node,
 		result["auto_bind"] = _schema_to_dict(influence_ctrl)
 	if postfx and postfx.has_method("get_param_schema"):
 		result["postfx"] = _schema_to_dict(postfx)
+	if skel_bind and skel_bind.has_method("get_param_schema"):
+		result["skeleton_bind"] = _schema_to_dict(skel_bind)
 	return result
 
 ## Encode every schema property of a single object into a flat Dictionary.
@@ -102,7 +104,7 @@ static func _encode_colormap(cm: GradientColormap) -> Variant:
 static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
 		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
-		postfx: Object = null) -> void:
+		postfx: Object = null, skel_bind: Object = null) -> void:
 	manager.clear_all()
 	for od in data.get("objects", []):
 		create_object(od, manager)
@@ -151,6 +153,13 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 		if postfx.has_method("reset_defaults"):
 			postfx.reset_defaults()
 		_dict_to_schema(postfx, data.get("postfx", {}))
+	if skel_bind:
+		# Same pattern: presets carry no "skeleton_bind" block, so skeleton auto-bind
+		# resets off on load (objects were already cleared above, taking any
+		# auto-spawned bone influences with them).
+		if skel_bind.has_method("reset_defaults"):
+			skel_bind.reset_defaults()
+		_dict_to_schema(skel_bind, data.get("skeleton_bind", {}))
 	if not manager.objects.is_empty():
 		manager.select(manager.objects[0])
 
