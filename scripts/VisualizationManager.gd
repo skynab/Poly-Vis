@@ -37,7 +37,8 @@ func _scan_children() -> void:
 func is_managed(node: Node) -> bool:
 	return node is PolyMesh or node is PolyParticles or node is PolyCloth \
 		or node is PolyTrails or node is PolyMetaballs or node is PolyStrands \
-		or node is PolyBoids or node is PolyVoronoi or node is InfluenceObject
+		or node is PolyBoids or node is PolyVoronoi or node is PolyLightField \
+		or node is InfluenceObject
 
 # --- undo-free spawn primitives --------------------------------------------
 # These add an object without recording an undo step. Used by CompositionIO
@@ -66,6 +67,9 @@ func spawn_boids() -> Node3D:
 
 func spawn_voronoi() -> Node3D:
 	return _register(PolyVoronoi.new())
+
+func spawn_lightfield() -> Node3D:
+	return _register(PolyLightField.new())
 
 ## `select_after` is false for influences spawned silently by
 ## InfluenceController's auto-bind (so a newly-streamed rigid body doesn't
@@ -102,6 +106,9 @@ func add_boids() -> Node3D:
 
 func add_voronoi() -> Node3D:
 	return _record_add(spawn_voronoi())
+
+func add_lightfield() -> Node3D:
+	return _record_add(spawn_lightfield())
 
 func add_influence(select_after: bool = true) -> Node3D:
 	return _record_add(spawn_influence(select_after))
@@ -142,6 +149,8 @@ func _type_label(obj: Node) -> String:
 		return "PolyBoids"
 	if obj is PolyVoronoi:
 		return "PolyVoronoi"
+	if obj is PolyLightField:
+		return "PolyLightField"
 	if obj is InfluenceObject:
 		return "Influence"
 	return "Object"

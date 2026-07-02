@@ -53,14 +53,14 @@ Central object registry. All managed objects (`PolyMesh`, `PolyParticles`,
 
 Adds come in two flavors. The **undo-free primitives** `spawn_mesh()`,
 `spawn_particles()`, `spawn_cloth()`, `spawn_trails()`, `spawn_metaballs()`,
-`spawn_strands()`, `spawn_boids()`, `spawn_voronoi()`,
+`spawn_strands()`, `spawn_boids()`, `spawn_voronoi()`, `spawn_lightfield()`,
 `spawn_influence(select_after=true)` register
 an object without
 touching undo history — used by CompositionIO (load / preset / duplicate) and
 InfluenceController's auto-bind, where a batch appears without meaning a user
 "add". The **user-facing** `add_mesh()` / `add_particles()` / `add_cloth()` /
 `add_trails()` / `add_metaballs()` / `add_strands()` / `add_boids()` /
-`add_voronoi()` / `add_influence(select_after=true)` wrap the
+`add_voronoi()` / `add_lightfield()` / `add_influence(select_after=true)` wrap the
 matching primitive and, when `undo` is set, record a single undo step via
 `_record_add()` (see UndoHistory). `spawn_influence(false)` /
 `add_influence(false)` skip the normal select-on-add so a silent auto-spawn
@@ -281,6 +281,27 @@ influence-tint uniforms; adds a **Cell** color source (flat per-cell → mosaic,
 the default) and a **Shatter** source (lights cells by how far they've opened).
 Geometry/cell params `rebuild()`; fracture/color params are cheap uniform pushes
 (`_push_fracture` / `_apply_color_and_polish`). Schema-driven serialization.
+
+### PolyLightField
+`MultiMeshInstance3D` rendering a flat grid of emissive quads — the on-screen
+analogue of the physical LED wall, a reactive pixel field. `rebuild()` bakes a
+single MultiMesh: `grid_width × grid_height` unit `QuadMesh` cells laid out centred
+in the XY plane, `cell_size` apart, each quad covering `cell_fill` of its cell (so
+gaps read as distinct pixels), with `use_custom_data = true` and a per-cell random
+shimmer phase written into custom-data.x (+ normalized grid coords in y/z).
+`poly_lightfield.gdshader` (`unshaded`) does all the response **per cell in the
+vertex stage**: it reads the cell's world position from the MultiMesh instance
+origin (`MODEL_MATRIX` translation) and the shared `u_influence_*` arrays,
+accumulates a `pow(1-smoothstep, falloff)` distance response weighted by influence
+strength, and drives the cell's intensity + colormap hue (dark→cool, bright→hot)
+from it, tinting lit cells toward the influence color. An idle shimmer keyed off
+the per-cell phase keeps the uninfluenced wall breathing; `idle_brightness` sets
+its floor and `cell_gain` pushes lit cells past the glow HDR threshold for bloom.
+Deliberately cheap for the LED wall — one MultiMesh, one draw, **no per-frame CPU
+work**: `set_influences()` only pushes uniforms and the GPU recomputes every cell.
+Grid params `rebuild()`; response/color params are uniform pushes (`_apply_response`
+/ `_apply_color`); `_process` pushes `u_time` for the shimmer. Schema-driven
+serialization.
 
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
@@ -799,6 +820,20 @@ world space (`pow(fall, u_gap_falloff)`), and translates the vertex outward alon
 the same centre + push, so cells separate rigidly at their seams. `color_source` 3
 = flat `v_cellid` (Voronoi mosaic), 4 = `v_shatter` (crack amount). No `u_time` /
 animation.
+
+### poly_lightfield.gdshader (spatial)
+PolyLightField's LED-cell shader — `render_mode unshaded, cull_disabled`, drawn on
+a MultiMesh (one quad per cell). All response is per-cell in the **vertex** stage:
+it reads the cell's world position from the MultiMesh instance origin
+(`MODEL_MATRIX * vec4(0,0,0,1)`) and the shared `u_influence_*` arrays, accumulates
+`pow(1 - smoothstep(0, radius, d), u_falloff) * |strength|` over the influences
+(strongest sets the lit intensity, contributions weight the tint color), adds an
+idle shimmer from the per-cell phase in `INSTANCE_CUSTOM.x` (`u_idle_brightness`
+floor, `u_shimmer_*`), and outputs `colormap(intensity) * intensity` as both ALBEDO
+and EMISSION so bright cells bloom. No CPU per-frame work — `set_influences()` only
+pushes uniforms. This and the mesh nodes' shaders are `spatial`; the influence
+convention is identical (fixed size 8), only here strength magnitude drives
+brightness rather than displacement.
 
 ### particle_flow.gdshader (particles)
 Similar set — all pushed via `_mat.set_shader_parameter()`. Curl-noise flow

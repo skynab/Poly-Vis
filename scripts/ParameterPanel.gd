@@ -146,6 +146,7 @@ func _build_base() -> void:
 	_btn(bar2, "+ Strands", "Add a combable blade/strand field", func(): _manager.add_strands())
 	_btn(bar2, "+ Boids", "Add a boid-flocking particle system", func(): _manager.add_boids())
 	_btn(bar2, "+ Voronoi", "Add a fractured Voronoi icosphere", func(): _manager.add_voronoi())
+	_btn(bar2, "+ Light Field", "Add a reactive LED pixel field", func(): _manager.add_lightfield())
 	_btn(bar2, "+ Inf",  "Add a new influence sphere", func(): _manager.add_influence())
 	_btn(bar2, "Remove", "Delete the selected object  [Delete]", func(): _manager.remove_selected())
 
