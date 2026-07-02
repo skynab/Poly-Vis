@@ -21,6 +21,7 @@ var hud_logo: HudLogo
 var wall: WallConfig
 var audio: AudioReactor
 var postfx: PostFX
+var render_scale: RenderScale
 var _fps_label: Label
 ## Active preset/composition transition tween (see apply_composition). Kept so a
 ## new load can cancel a still-running glide instead of fighting it.
@@ -75,19 +76,26 @@ func _ready() -> void:
 	# LED wall description — physical size + resolution for real-world mapping.
 	wall = WallConfig.new()
 
+	# Render-scale / performance — drives the viewport's 3D scaling so the scene
+	# can render below native res while the UI stays crisp. A machine preference
+	# persisted to user://settings.cfg (loaded in _init) and re-applied here.
+	render_scale = RenderScale.new()
+	render_scale.apply()
+
 	# Audio reactivity — spectrum-analyzer bands feed opt-in modulated params
 	# (e.g. PolyParticles.brightness_audio_band). Off by default.
 	audio = AudioReactor.new()
 	audio.bind(self)
 	manager.audio_reactor = audio
 
-	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self, postfx)
+	panel.setup(manager, camera, capture, undo, scene_env, hud_logo, gizmo, wall, audio, influence, self, postfx, render_scale)
 	influence.setup(manager, camera, wall)
 	input_mgr.setup(manager, camera, panel, undo)
 
 func _process(delta: float) -> void:
 	_fps_label.text = "FPS  %d" % Engine.get_frames_per_second()
 	audio.update(delta)
+	render_scale.update(delta)
 
 # ---------------------------------------------------------------------------
 # Composition loading with an optional animated transition

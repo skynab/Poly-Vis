@@ -336,9 +336,10 @@ it stores no value and CompositionIO skips it during (de)serialization.
 
 Panel top-to-bottom: title → object selector → add/remove → preset/save/load/dup
 → capture/record → status line → hint bar → camera → scene → audio reactivity →
-HUD logo → selection ring → LED wall → auto-bind rigid bodies → post FX → object sections.
-Camera/scene/audio/hud/gizmo/wall/auto-bind/postfx are global modules in a static
-area; managed-object controls render in `_object_host` below them.
+HUD logo → selection ring → LED wall → auto-bind rigid bodies → post FX →
+performance (render scale) → object sections.
+Camera/scene/audio/hud/gizmo/wall/auto-bind/postfx/perf are global modules in a
+static area; managed-object controls render in `_object_host` below them.
 
 ### HudLogo
 `CanvasLayer` overlay showing a logo over the front of the view. Bundles the
@@ -385,6 +386,10 @@ influences a previous auto-bind session spawned.
 glide is layered on top by `Main.apply_composition` (see below), which the panel
 routes both the preset dropdown and the Load button through. CompositionIO itself
 stays stateless and has no knowledge of the tween.
+
+RenderScale is intentionally **not** a CompositionIO module — it's a machine
+performance preference persisted to `user://settings.cfg`, so it must survive
+composition/preset loads rather than reset with them (don't add it here).
 
 ### Main
 Root coordinator (`Main.tscn`) — instantiates and wires every runtime system in
@@ -488,6 +493,31 @@ Y→vertical) — used by `InfluenceController._wall_to_view` to place a `map_to
 influence at the tracked object's real spot on the rendered wall (physical metres →
 screen UV → unproject onto the view plane). Like the other global modules, presets
 carry no `"wall"` block, so loading one runs `reset_defaults()` (1920×1080, 3×2 m).
+
+### RenderScale
+`RefCounted` schema-driven **Performance** module — the proper replacement for the
+old ad-hoc "half resolution" hack. Drives the root viewport's `scaling_3d_scale`
+(`render_scale`, 0.25–1.0) and `scaling_3d_mode` so the 3D scene renders at a
+fraction of the window while the 2D UI stays full-resolution (Godot always renders
+2D at native res, so the panel/logo stay crisp; screenshots capture the upscaled
+result). Reaches the viewport through `Engine.get_main_loop().root` like WallConfig
+— no host bind needed. `upscale_mode` picks Bilinear or FSR 1.0; FSR needs the
+Forward+/Mobile renderer (`RenderingServer.get_current_rendering_method()` via
+`_fsr_supported()`) and only engages while actually upscaling (`render_scale < 1`),
+else it falls back to Bilinear. `auto_scale` mirrors PolyParticles' `auto_budget`:
+`update(delta)` (called from `Main._process`) samples FPS once per second over a
+5-sample window and `_apply_auto(avg)` hill-climbs `render_scale` with asymmetric
+hysteresis (drop below 0.92×target, raise only above 1.12×) to hold `target_fps`
+without oscillating. `scale_status()` backs a live "Effective" panel row (3D
+buffer size + active upscaler).
+
+Unlike every other module this is a **machine preference, not composition state**:
+it persists to `user://settings.cfg` (`ConfigFile`, `[performance]` section) via
+`_save()` on every setter and `load_settings()` in `_init()`, and is deliberately
+**not** threaded through CompositionIO — so loading a preset authored elsewhere
+never forces a render scale onto a slower box (the Mac that motivated this). Main
+creates it after WallConfig, calls `apply()`, passes it to `panel.setup(...)`, and
+ticks `update(delta)`.
 
 ### AudioReactor
 `RefCounted` schema-driven global module (like SceneEnvironment/WallConfig), created
@@ -793,6 +823,12 @@ for rigid-body tracking) to a streamed asset/bone, run.
 - **CaptureManager recording** writes PNG per frame synchronously on the main
   thread. For high particle counts or high subdivision keep FPS expectations
   realistic; the budget system will reduce particle count automatically.
+- **RenderScale** (Performance section) is the front-line knob for GPU-bound
+  scenes — lowering `render_scale` cuts 3D fill cost quadratically (0.5 = ¼ the
+  3D pixels) while the UI stays sharp. Prefer this on the LED wall over dropping
+  object detail. Enable `auto_scale` to hold a target FPS hands-off. FSR 1.0 is
+  the recommended upscaler on Forward+; it silently falls back to bilinear on the
+  GL Compatibility backend (and web exports that use it).
 
 ---
 

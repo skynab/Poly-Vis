@@ -32,6 +32,7 @@ var _gizmo: Object  # SelectionGizmo — selection ring toggle, rendered after h
 var _wall: Object   # WallConfig — LED wall dimensions/resolution, rendered after gizmo
 var _influence_ctrl: Object  # InfluenceController — auto-bind toggle, rendered after wall
 var _postfx: Object  # PostFX — full-screen post-processing, rendered after auto-bind
+var _perf: Object   # RenderScale — 3D render-scale / performance, rendered after postfx
 var _main: Node     # Main — routes preset/composition loads through its animated transition
 var _capture: CaptureManager
 var _undo: UndoHistory
@@ -54,7 +55,7 @@ func setup(manager: VisualizationManager, camera: Node,
 		capture: CaptureManager = null, undo: UndoHistory = null,
 		scene: Object = null, hud: Object = null, gizmo: Object = null,
 		wall: Object = null, audio: Object = null, influence_ctrl: Object = null,
-		main: Node = null, postfx: Object = null) -> void:
+		main: Node = null, postfx: Object = null, perf: Object = null) -> void:
 	_manager = manager
 	_camera = camera
 	_scene = scene
@@ -64,6 +65,7 @@ func setup(manager: VisualizationManager, camera: Node,
 	_audio = audio
 	_influence_ctrl = influence_ctrl
 	_postfx = postfx
+	_perf = perf
 	_main = main
 	_capture = capture
 	_undo = undo
@@ -219,6 +221,8 @@ func _build_base() -> void:
 		_populate(global_content, _influence_ctrl, _influence_ctrl.get_param_schema())
 	if _postfx and _postfx.has_method("get_param_schema"):
 		_populate(global_content, _postfx, _postfx.get_param_schema())
+	if _perf and _perf.has_method("get_param_schema"):
+		_populate(global_content, _perf, _perf.get_param_schema())
 
 	# --- Selection tab: just the selected object's controls (show_object fills it) ---
 	_object_host = _make_scroll_tab(tabs, "Selection")
