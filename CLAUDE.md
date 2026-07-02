@@ -53,11 +53,12 @@ Central object registry. All managed objects (`PolyMesh`, `PolyParticles`,
 
 Adds come in two flavors. The **undo-free primitives** `spawn_mesh()`,
 `spawn_particles()`, `spawn_cloth()`, `spawn_trails()`, `spawn_metaballs()`,
-`spawn_influence(select_after=true)` register an object without touching undo
-history — used by CompositionIO (load / preset / duplicate) and
+`spawn_strands()`, `spawn_influence(select_after=true)` register an object without
+touching undo history — used by CompositionIO (load / preset / duplicate) and
 InfluenceController's auto-bind, where a batch appears without meaning a user
 "add". The **user-facing** `add_mesh()` / `add_particles()` / `add_cloth()` /
-`add_trails()` / `add_metaballs()` / `add_influence(select_after=true)` wrap the
+`add_trails()` / `add_metaballs()` / `add_strands()` /
+`add_influence(select_after=true)` wrap the
 matching primitive and, when `undo` is set, record a single undo step via
 `_record_add()` (see UndoHistory). `spawn_influence(false)` /
 `add_influence(false)` skip the normal select-on-add so a silent auto-spawn
@@ -209,6 +210,30 @@ Normal) plus the posterize / contrast / rim / influence-tint conventions from
 GPU-cost knobs, flagged in the schema hints. Schema-driven serialization; the
 **Merging Blobs** preset seeds it with two hidden influences (one follow-mouse)
 so dragging one into the other demonstrates the merge.
+
+### PolyStrands
+`MeshInstance3D` rendering a dense field of blades/strands over the y=0 ground
+plane — a combable meadow, the strand counterpart to PolyCloth's single sheet.
+The static field is baked once on the CPU by `_build_field()`: a flat ground quad
+plus `density` tapered blades scattered across `[-extent, extent]²` (deterministic
+from `seed`), each a `SEGMENTS`-segment vertical strip that tapers from
+`blade_width` at the base to a point at the tip, with a per-blade random yaw +
+height variation. Every vertex bakes its normalized height into `UV.y` (0 base →
+1 tip) and its blade-root XZ into `UV2`, with a flat baked normal; the ground quad
+uses `UV.y = 0` so it stays in the base color and, because all motion scales with
+height, perfectly still. `poly_strands.gdshader` does the per-frame motion: an idle
+wind `sway` (curl-free position noise, `sway_amount` / `sway_speed`) plus influence
+**combing** — for each influence it bends the blade's upper length toward it
+(attract, +strength) or away (repel, −strength), by a smoothstep falloff over
+`u_influence_radius`, concentrated toward the tip (`t²`) and resisted by
+`stiffness`. Implements `set_influences()` with the shared fixed-size (8)
+`u_influence_*` convention. Color follows the codebase's colormap-OR-endpoints
+idiom: with a `colormap` assigned it tints each blade by a low-frequency meadow
+field (shaded base→tip), else the `base_color`→`tip_color` gradient is the
+fallback; plus the standard posterize / contrast / rim conventions. Setters mirror
+PolyCloth — geometry params (`density`, `extent`, `blade_length`, `blade_width`,
+`seed`) call `rebuild()`, motion/color params are cheap uniform pushes
+(`_push_motion` / `_apply_color_and_polish`). Schema-driven serialization.
 
 ### OrbitCamera
 Middle-drag orbits (yaw/pitch), Shift+middle-drag pans the target point,
@@ -752,6 +777,21 @@ VIEW_MATRIX * hit`) and a gradient normal (converted to view space for the
 built-in lighting). Reuses the same colormap / posterize / contrast / rim /
 influence-tint uniforms as `polymesh_deform`. Cost knobs: `u_max_steps`
 (`quality`) and `u_surface_eps`; `u_max_dist` is derived from `bounds`.
+
+### poly_strands.gdshader (spatial)
+PolyStrands' blade-field shader — `render_mode cull_disabled, diffuse_burley,
+specular_schlick_ggx` (thin double-sided blades; the fragment stage flips the
+baked normal via `FRONT_FACING`). The field geometry is baked on the CPU
+(PolyStrands.gd); this shader only animates it in the vertex stage. It reads each
+vertex's height from `UV.y` and its blade root from `UV2`, reconstructs the root's
+world position via `MODEL_MATRIX` (world-space combing/sway, like polycloth), then
+adds an idle wind `sway` (two `snoise` samples) plus per-influence combing — bend
+toward (`+u_influence_strength`) / away (`−`) each root, `smoothstep` falloff over
+`u_influence_radius`, weighted `t²` toward the tip and divided by `u_stiffness` —
+displacing `VERTEX.xz` with a slight `VERTEX.y` droop. Shares the same colormap /
+posterize / contrast / rim / `u_influence_*` uniforms as `polymesh_deform` /
+`polycloth`; color is `u_colormap` sampled by a per-blade meadow field (shaded
+base→tip) when enabled, else the `u_base_color`→`u_tip_color` gradient.
 
 ### poly_postfx.gdshader (canvas_item)
 PostFX's full-screen pass. Reads the 3D render via `hint_screen_texture` (fed by

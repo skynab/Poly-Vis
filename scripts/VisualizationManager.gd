@@ -36,7 +36,8 @@ func _scan_children() -> void:
 
 func is_managed(node: Node) -> bool:
 	return node is PolyMesh or node is PolyParticles or node is PolyCloth \
-		or node is PolyTrails or node is PolyMetaballs or node is InfluenceObject
+		or node is PolyTrails or node is PolyMetaballs or node is PolyStrands \
+		or node is InfluenceObject
 
 # --- undo-free spawn primitives --------------------------------------------
 # These add an object without recording an undo step. Used by CompositionIO
@@ -56,6 +57,9 @@ func spawn_trails() -> Node3D:
 
 func spawn_metaballs() -> Node3D:
 	return _register(PolyMetaballs.new())
+
+func spawn_strands() -> Node3D:
+	return _register(PolyStrands.new())
 
 ## `select_after` is false for influences spawned silently by
 ## InfluenceController's auto-bind (so a newly-streamed rigid body doesn't
@@ -83,6 +87,9 @@ func add_trails() -> Node3D:
 
 func add_metaballs() -> Node3D:
 	return _record_add(spawn_metaballs())
+
+func add_strands() -> Node3D:
+	return _record_add(spawn_strands())
 
 func add_influence(select_after: bool = true) -> Node3D:
 	return _record_add(spawn_influence(select_after))
@@ -117,6 +124,8 @@ func _type_label(obj: Node) -> String:
 		return "PolyTrails"
 	if obj is PolyMetaballs:
 		return "PolyMetaballs"
+	if obj is PolyStrands:
+		return "PolyStrands"
 	if obj is InfluenceObject:
 		return "Influence"
 	return "Object"

@@ -143,6 +143,7 @@ func _build_base() -> void:
 	_btn(bar2, "+ Cloth", "Add a new crumpled-cloth surface", func(): _manager.add_cloth())
 	_btn(bar2, "+ Trails", "Add ribbon trails that follow influences", func(): _manager.add_trails())
 	_btn(bar2, "+ Blobs", "Add raymarched metaballs seeded from influences", func(): _manager.add_metaballs())
+	_btn(bar2, "+ Strands", "Add a combable blade/strand field", func(): _manager.add_strands())
 	_btn(bar2, "+ Inf",  "Add a new influence sphere", func(): _manager.add_influence())
 	_btn(bar2, "Remove", "Delete the selected object  [Delete]", func(): _manager.remove_selected())
 
