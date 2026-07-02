@@ -447,12 +447,24 @@ into `panel.setup`), falling back to a direct `CompositionIO.apply` if unset.
 
 ### SceneEnvironment
 `RefCounted` wrapper around the `WorldEnvironment.environment` resource, bound by
-Main at startup via `bind()`. Exposes the background + bloom through
+Main at startup via `bind()`. Exposes the background + bloom + fog through
 `get_param_schema()` so they render in the panel (under the camera) and serialize
 under the `"scene"` key. `bg_color` also drives `ambient_light_color` (dark
 background → dark room) in every mode, so object lighting stays predictable
 regardless of the backdrop. Bloom uses additive glow with a 0.7 HDR threshold, so
 particles with `particle_brightness > 1` bloom.
+
+Volumetric fog is exposed as a separate **"Fog"** schema section below bloom:
+`fog_enabled` toggles Godot's built-in volumetric fog (Forward+ only) and
+`fog_density` / `fog_albedo` / `fog_emission` / `fog_length` / `fog_gi_inject` map
+straight onto the `Environment.volumetric_fog_*` properties in `_apply()`, pushed
+every call exactly like the glow block. `fog_emission` is the key knob for the dark
+LED-wall scenes — it makes the haze self-lit so it reads on a black backdrop with
+no light hitting it. Fog is applied underneath glow (the scene is scattered by the
+fog, then glow blooms the bright/emissive pixels), so it composites cleanly with
+the neon bloom above rather than fighting it. Off by default; `reset_defaults()`
+clears it (fog off, density 0.03, white albedo, no emission, length 64, no GI
+inject) so a composition with no `"scene"` block loads clean.
 
 `background_mode` (BackgroundMode enum) picks the backdrop:
 - **COLOR** — flat `bg_color` room (`Environment.BG_COLOR`), the classic look.
@@ -793,7 +805,7 @@ entirely by the schema.
       }
     }
   ],
-  "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2 },
+  "scene": { "bg_color": [0.02, 0.02, 0.05, 1.0], "bloom_enabled": true, "bloom_intensity": 1.2, "fog_enabled": true, "fog_density": 0.04, "fog_albedo": [1.0, 1.0, 1.0, 1.0], "fog_emission": [0.1, 0.3, 0.6, 1.0], "fog_length": 64.0, "fog_gi_inject": 0.0 },
   "hud": { "enabled": true, "logo": 1, "corner": 2, "size_scale": 0.16, "opacity": 1.0, "shadow_enabled": true, "shadow_color": [0.0, 0.0, 0.0, 0.5], "shadow_offset_x": 8.0, "shadow_offset_y": 8.0, "shadow_blur": 0.0 },
   "wall": { "physical_width": 3.0, "physical_height": 2.0, "pixel_width": 1920, "pixel_height": 1080, "origin": [0.0, 0.0, 0.0] },
   "audio": { "enabled": true, "input_source": 0, "smoothing": 0.8, "bass_gain": 1.0, "mid_gain": 1.0, "treble_gain": 1.0, "beat_sensitivity": 1.3 },

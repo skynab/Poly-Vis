@@ -43,6 +43,20 @@ var skybox_path: String = "": set = set_skybox_path
 var bloom_enabled: bool = false: set = set_bloom_enabled
 ## Glow intensity; particle_brightness drives pixels above the HDR threshold.
 var bloom_intensity: float = 0.8: set = set_bloom_intensity
+## Master volumetric-fog toggle — a light-scattering haze filling the scene
+## (Forward+ only). Reads best on the dark LED-wall backdrops. Off by default.
+var fog_enabled: bool = false: set = set_fog_enabled
+## Fog density — how thick the haze is (higher = murkier). Effect scales with length.
+var fog_density: float = 0.03: set = set_fog_density
+## Base fog color (how it tints light passing through it).
+var fog_albedo: Color = Color(1, 1, 1): set = set_fog_albedo
+## Self-lit fog color — glows on its own without a light, so the haze reads on an
+## otherwise black backdrop. Black (default) = no emission.
+var fog_emission: Color = Color(0, 0, 0): set = set_fog_emission
+## How far the fog volume extends from the camera (world units).
+var fog_length: float = 64.0: set = set_fog_length
+## How much scene GI bleeds into the fog (0 = none).
+var fog_gi_inject: float = 0.0: set = set_fog_gi_inject
 ## When true the current background is kept across preset/composition loads — the
 ## preset's stored "scene" block is ignored — so switching presets isn't a jarring
 ## backdrop change. A live session preference (not serialized, not reset by
@@ -83,6 +97,12 @@ func bind(e: Environment, host: Node = null) -> void:
 func reset_defaults() -> void:
 	bloom_enabled = false
 	bloom_intensity = 0.8
+	fog_enabled = false
+	fog_density = 0.03
+	fog_albedo = Color(1, 1, 1)
+	fog_emission = Color(0, 0, 0)
+	fog_length = 64.0
+	fog_gi_inject = 0.0
 	background_mode = BackgroundMode.COLOR
 	bg_color2 = Color(0.62, 0.66, 0.98)
 	noise_scale = 2.5
@@ -125,6 +145,30 @@ func set_bloom_enabled(v: bool) -> void:
 
 func set_bloom_intensity(v: float) -> void:
 	bloom_intensity = v
+	_apply()
+
+func set_fog_enabled(v: bool) -> void:
+	fog_enabled = v
+	_apply()
+
+func set_fog_density(v: float) -> void:
+	fog_density = v
+	_apply()
+
+func set_fog_albedo(v: Color) -> void:
+	fog_albedo = v
+	_apply()
+
+func set_fog_emission(v: Color) -> void:
+	fog_emission = v
+	_apply()
+
+func set_fog_length(v: float) -> void:
+	fog_length = v
+	_apply()
+
+func set_fog_gi_inject(v: float) -> void:
+	fog_gi_inject = v
 	_apply()
 
 func _ensure_sky() -> void:
@@ -199,6 +243,16 @@ func _apply() -> void:
 	env.set_glow_level(3, 0.6)
 	env.set_glow_level(4, 0.4)
 
+	# Volumetric fog — composites underneath glow (fog scatters the scene, then
+	# glow blooms the bright/emissive pixels the fog leaves behind), so it stacks
+	# cleanly with the neon bloom above. Forward+ only; a no-op on other renderers.
+	env.volumetric_fog_enabled = fog_enabled
+	env.volumetric_fog_density = fog_density
+	env.volumetric_fog_albedo = fog_albedo
+	env.volumetric_fog_emission = fog_emission
+	env.volumetric_fog_length = fog_length
+	env.volumetric_fog_gi_inject = fog_gi_inject
+
 ## Load the panorama for SKYBOX mode into _pano_mat. Returns false (→ fall back to
 ## color) when the path is empty or the image can't be loaded. Mirrors HudLogo's
 ## external-image handling: res://, user:// go through the loader, OS paths are read
@@ -267,5 +321,19 @@ func get_param_schema() -> Array:
 				"hint": "Browse for a panorama image and switch to Skybox mode"},
 			{"name": "bloom_enabled", "type": "bool"},
 			{"name": "bloom_intensity", "type": "float", "min": 0.0, "max": 8.0, "step": 0.05},
+		]
+	}, {
+		"title": "Fog",
+		"props": [
+			{"name": "fog_enabled", "type": "bool",
+				"hint": "Volumetric fog (Forward+ only); reads best on dark scenes"},
+			{"name": "fog_density", "type": "float", "min": 0.0, "max": 1.0, "step": 0.005},
+			{"name": "fog_albedo", "type": "color", "hint": "Base fog color"},
+			{"name": "fog_emission", "type": "color",
+				"hint": "Self-lit fog color — glows on a dark backdrop (black = off)"},
+			{"name": "fog_length", "type": "float", "min": 1.0, "max": 1024.0, "step": 1.0,
+				"hint": "How far the fog extends from the camera (world units)"},
+			{"name": "fog_gi_inject", "type": "float", "min": 0.0, "max": 16.0, "step": 0.1,
+				"hint": "How much scene GI bleeds into the fog"},
 		]
 	}]
