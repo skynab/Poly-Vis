@@ -32,6 +32,10 @@ const MAX_INFLUENCES := 8
 ## Smooth-min blend width. 0 = hard spheres; higher fuses nearby blobs into
 ## rounder, more liquid merges.
 @export_range(0.0, 4.0) var smoothness: float = 0.6: set = set_smoothness
+## Stretch each blob backward along its influence's recent motion (from the shared
+## trajectory history in InfluenceController) for a comet / smear tail. 0 = round
+## blobs; higher = longer tails. No-op on a still influence (zero motion).
+@export_range(0.0, 4.0) var motion_stretch: float = 0.0: set = set_motion_stretch
 
 @export_group("Quality")
 ## Max sphere-tracing steps per pixel — the primary GPU cost. Sphere tracing leaps
@@ -93,6 +97,7 @@ func _apply_field() -> void:
 	_mat.set_shader_parameter("u_smoothness", smoothness)
 	_mat.set_shader_parameter("u_max_steps", quality)
 	_mat.set_shader_parameter("u_surface_eps", surface_eps)
+	_mat.set_shader_parameter("u_motion_stretch", motion_stretch)
 
 func _apply_color_and_polish() -> void:
 	if _mat == null:
@@ -128,6 +133,16 @@ func set_influences(count: int, positions: PackedVector3Array, radii: PackedFloa
 	_mat.set_shader_parameter("u_influence_strength", strengths)
 	_mat.set_shader_parameter("u_influence_color", colors)
 
+## Per-active-influence recent-motion vectors (oldest→newest displacement of each
+## influence's trajectory), pushed each frame by InfluenceController alongside
+## set_influences(). The shader elongates each blob backward along these, scaled by
+## motion_stretch, for the comet/smear effect. Same fixed-size (MAX_INFLUENCES)
+## ordering as the influence arrays.
+func set_influence_motion(motion: PackedVector3Array) -> void:
+	if _mat == null:
+		return
+	_mat.set_shader_parameter("u_influence_motion", motion)
+
 # --- setters ----------------------------------------------------------------
 func set_bounds(v: float) -> void:
 	bounds = v
@@ -141,6 +156,11 @@ func set_blob_radius(v: float) -> void:
 func set_smoothness(v: float) -> void:
 	smoothness = v
 	_apply_field()
+
+func set_motion_stretch(v: float) -> void:
+	motion_stretch = v
+	if _mat:
+		_mat.set_shader_parameter("u_motion_stretch", v)
 
 func set_quality(v: int) -> void:
 	quality = v
@@ -224,6 +244,8 @@ func get_param_schema() -> Array:
 			{"name": "blob_radius", "type": "float", "min": 0.05, "max": 6.0, "step": 0.05},
 			{"name": "smoothness", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05,
 				"hint": "Merge blend — higher fuses nearby blobs into rounder, more liquid joins"},
+			{"name": "motion_stretch", "type": "float", "min": 0.0, "max": 4.0, "step": 0.05,
+				"hint": "Elongate each blob along its influence's recent path (comet tail); 0 = round"},
 		]},
 		{"title": "Quality", "props": [
 			{"name": "quality", "type": "int", "min": 16, "max": 256, "step": 8,

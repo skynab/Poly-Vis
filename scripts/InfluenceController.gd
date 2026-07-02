@@ -56,6 +56,12 @@ signal dwell(influence: InfluenceObject)
 ## be counted as dwelling.
 @export var dwell_radius: float = 0.15
 
+# --- trajectory history (shared recent-path buffer) -------------------------
+## Seconds of each active influence's recent world-space path to retain.
+@export var history_seconds: float = 1.5
+## Path sampling rate (samples/sec). Framerate-independent, like PolyTrails.
+@export var sample_hz: float = 30.0
+
 var _manager: VisualizationManager
 var _camera: Camera3D
 var _wall: Object                 # WallConfig — physical→screen mapping for tracking
@@ -73,6 +79,9 @@ var _clap_pairs: Dictionary = {}     # "idA:idB" -> bool, sphere-collision risin
 var _dwell_anchor: Dictionary = {}   # infl instance_id -> Vector3, current dwell spot
 var _dwell_time: Dictionary = {}     # infl instance_id -> float, seconds held near the anchor
 var _dwell_fired: Dictionary = {}    # infl instance_id -> bool, fired-once-per-episode latch
+# Shared trajectory-history ring buffers, keyed by influence instance_id.
+var _history: Dictionary = {}        # infl instance_id -> PackedVector3Array (oldest → newest)
+var _history_accum: float = 0.0      # sample-cadence accumulator (framerate-stable)
 
 func setup(manager: VisualizationManager, camera: Camera3D, wall: Object = null) -> void:
 	_manager = manager
@@ -93,6 +102,10 @@ func reset_defaults() -> void:
 	push_pull_speed = 1.5
 	dwell_seconds = 1.0
 	dwell_radius = 0.15
+	history_seconds = 1.5
+	sample_hz = 30.0
+	_history.clear()
+	_history_accum = 0.0
 	_auto_bound.clear()
 	_prev_pos.clear()
 	_speed.clear()
@@ -109,6 +122,7 @@ func _process(delta: float) -> void:
 		return
 	_update_follow(delta)
 	_update_auto_bind()
+	_update_history(delta)
 	_push_uniforms()
 	_update_proximity()
 	_update_gestures(delta)
@@ -386,14 +400,56 @@ func _influences() -> Array[InfluenceObject]:
 			out.append(o as InfluenceObject)
 	return out
 
+# --- trajectory history -----------------------------------------------------
+## Append each active influence's world position to its ring buffer at a fixed
+## sample_hz cadence (framerate-stable, mirroring PolyTrails' sampling), capping the
+## buffer at history_seconds worth of samples. Buffers for influences that went
+## inactive this frame are pruned, so the history follows the active set exactly.
+func _update_history(delta: float) -> void:
+	_history_accum += delta
+	var step := 1.0 / maxf(sample_hz, 0.001)
+	var commit := _history_accum >= step
+	if commit:
+		_history_accum = 0.0
+	var cap := maxi(int(ceil(history_seconds * maxf(sample_hz, 0.001))), 2)
+	var live := {}
+	for infl in _active_influences():
+		var id := infl.get_instance_id()
+		live[id] = true
+		if commit:
+			var buf: PackedVector3Array = _history.get(id, PackedVector3Array())
+			buf.append(infl.global_position)
+			while buf.size() > cap:
+				buf.remove_at(0)
+			_history[id] = buf
+	# Prune buffers for influences that are no longer active.
+	for id in _history.keys().duplicate():
+		if not live.has(id):
+			_history.erase(id)
+
+## Recent world-space path of an influence (oldest → newest), sampled at sample_hz
+## over the last history_seconds. Empty for an unknown or inactive influence. Lets
+## any visualization react to where an influence has *been*, not just where it is
+## now — e.g. PolyMetaballs elongating a blob along the trailing path. Returns a
+## copy-on-write snapshot; callers may read it freely.
+func get_influence_history(instance_id: int) -> PackedVector3Array:
+	return _history.get(instance_id, PackedVector3Array())
+
 # --- push uniforms to visualizations ---------------------------------------
-func _push_uniforms() -> void:
+## The enabled, non-zero-strength influences pushed to the shaders this frame,
+## capped at MAX_INFLUENCES (the shader array size). Shared by _push_uniforms and
+## the trajectory-history sampler so both agree on the "active" set.
+func _active_influences() -> Array[InfluenceObject]:
 	var active: Array[InfluenceObject] = []
 	for infl in _influences():
 		if infl.enabled and infl.strength > 0.0:
 			active.append(infl)
 			if active.size() >= MAX_INFLUENCES:
 				break
+	return active
+
+func _push_uniforms() -> void:
+	var active := _active_influences()
 
 	var positions := PackedVector3Array()
 	var radii := PackedFloat32Array()
@@ -419,9 +475,24 @@ func _push_uniforms() -> void:
 			colors.append(Vector3.ZERO)
 			speeds.append(0.0)
 
+	# Per-active-influence "smear" vector for motion-reactive blobs (PolyMetaballs):
+	# oldest → newest displacement over the trajectory buffer, i.e. pointing back
+	# along the recent path. Padded to MAX_INFLUENCES like the other arrays.
+	var motion := PackedVector3Array()
+	for i in MAX_INFLUENCES:
+		if i < active.size():
+			var hist := get_influence_history(active[i].get_instance_id())
+			motion.append(hist[0] - hist[hist.size() - 1] if hist.size() >= 2 else Vector3.ZERO)
+		else:
+			motion.append(Vector3.ZERO)
+
 	for o in _manager.objects:
 		if not o.has_method("set_influences"):
 			continue
+		# Motion-reactive blobs also get the per-influence smear vectors so they can
+		# elongate along each influence's recent path (comet effect).
+		if o is PolyMetaballs:
+			(o as PolyMetaballs).set_influence_motion(motion)
 		# A "follow influence" particle system tracks the active influence's
 		# position (its emitter rides along) and receives no pushing force.
 		if o is PolyParticles and (o as PolyParticles).follow_influence:
@@ -557,5 +628,13 @@ func get_param_schema() -> Array:
 				"hint": "How long a tracked influence must hold still to dwell"},
 			{"name": "dwell_radius", "type": "float", "min": 0.01, "max": 2.0, "step": 0.01,
 				"hint": "How far the influence may drift and still count as holding still"},
+		]
+	}, {
+		"title": "Trajectory History",
+		"props": [
+			{"name": "history_seconds", "type": "float", "min": 0.1, "max": 10.0, "step": 0.1,
+				"hint": "Seconds of each active influence's recent path kept for get_influence_history() (drives PolyMetaballs' motion stretch)"},
+			{"name": "sample_hz", "type": "float", "min": 5.0, "max": 120.0, "step": 1.0,
+				"hint": "Path sampling rate (framerate-independent)"},
 		]
 	}]

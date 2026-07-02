@@ -206,6 +206,13 @@ Because marching is world-space and influences arrive world-space via
 `set_influences()` (the shared fixed-size arrays, MAX_INFLUENCES = 8), the blobs
 track influence motion regardless of this node's transform — `bounds` (the box
 size) only has to stay big enough to contain them, else blobs clip at the faces.
+`motion_stretch` (0 = off) elongates each blob backward along its influence's
+recent path into a comet/smear tail: InfluenceController pushes the per-influence
+"smear" vectors from its shared trajectory buffer via `set_influence_motion()`
+(stored in `u_influence_motion[8]`), and `map()` sweeps each sphere's centre from
+the current position toward the trailing samples — a one-sided capsule (clamping the
+projection to `[0, len]` so only the tail elongates, not a symmetric capsule). A
+still influence has zero motion, so it's a no-op.
 Color reuses `GradientColormap` (`color_source`: World Height / Distance /
 Normal) plus the posterize / contrast / rim / influence-tint conventions from
 `polymesh_deform.gdshader`. `quality` (max steps) and `surface_eps` are the
@@ -396,6 +403,23 @@ section (so they serialize with the controller under `"auto_bind"`);
 `reset_defaults()` restores them. **No consumers are wired yet** — the signals exist
 for downstream effects (a clap burst, push-to-scatter, dwell-to-select) to connect
 to, the way `_on_proximity_entered` consumes `proximity_entered`.
+
+**Trajectory history.** `_update_history()` (run before `_push_uniforms` each frame)
+keeps a shared ring buffer of every *active* influence's recent world-space path —
+one `PackedVector3Array` per instance_id (`_history`), appended at a fixed
+`sample_hz` cadence via `_history_accum` (framerate-stable, mirroring PolyTrails'
+sampling) and capped at `ceil(history_seconds * sample_hz)` samples. The active set
+comes from `_active_influences()` (enabled, strength > 0, capped at MAX_INFLUENCES),
+now shared with `_push_uniforms`. Buffers for influences that go inactive are pruned
+each frame, and `_history` is cleared in `reset_defaults()`. `get_influence_history(
+instance_id) -> PackedVector3Array` (oldest → newest) is the public lookup so **any**
+visualization can react to where an influence has *been*, not just where it is now;
+`history_seconds` / `sample_hz` are exposed in a **Trajectory History** panel section
+(serialized with the controller under `"auto_bind"`). Its first consumer:
+`_push_uniforms` derives a per-active-influence "smear" vector (`hist[0] − hist[last]`,
+pointing back along the path, padded to MAX_INFLUENCES) and hands it to every
+`PolyMetaballs` via `set_influence_motion()` (special-cased in the push loop like the
+`follow_influence` particle case) so blobs elongate into comet tails.
 
 `auto_bind_rigid_bodies` (off by default) keeps InfluenceObjects in 1:1 sync with
 whatever OptiTrack rigid bodies are currently streaming, for setups with several
@@ -912,7 +936,11 @@ varying). Misses `discard`; hits write `DEPTH` (`PROJECTION_MATRIX *
 VIEW_MATRIX * hit`) and a gradient normal (converted to view space for the
 built-in lighting). Reuses the same colormap / posterize / contrast / rim /
 influence-tint uniforms as `polymesh_deform`. Cost knobs: `u_max_steps`
-(`quality`) and `u_surface_eps`; `u_max_dist` is derived from `bounds`.
+(`quality`) and `u_surface_eps`; `u_max_dist` is derived from `bounds`. When
+`u_motion_stretch > 0`, `map()` elongates each sphere along `u_influence_motion[i]`
+(the influence's recent-path smear vector from InfluenceController's trajectory
+buffer) by sweeping the centre over `[0, len]` — a one-sided capsule (comet tail),
+zero-length motion left untouched.
 
 ### poly_strands.gdshader (spatial)
 PolyStrands' blade-field shader — `render_mode cull_disabled, diffuse_burley,

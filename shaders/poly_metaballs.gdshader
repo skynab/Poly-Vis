@@ -52,6 +52,11 @@ uniform vec3 u_influence_pos[8];
 uniform float u_influence_radius[8];
 uniform float u_influence_strength[8];   // packed for convention parity (unused here)
 uniform vec3 u_influence_color[8];
+// Per-influence recent-motion vector (oldest→newest displacement of its path),
+// from InfluenceController's shared trajectory buffer. Scaled by u_motion_stretch
+// to elongate each blob backward along its path (comet / smear). 0 = no stretch.
+uniform vec3 u_influence_motion[8];
+uniform float u_motion_stretch : hint_range(0.0, 4.0) = 0.0;
 
 varying vec3 v_world;
 varying vec3 v_center;   // node origin in world space (NODE_POSITION_WORLD isn't in fragment)
@@ -68,12 +73,25 @@ float smin(float a, float b, float k) {
 	return mix(b, a, h) - k * h * (1.0 - h);
 }
 
-// Scene SDF: smooth union of one sphere per active influence.
+// Scene SDF: smooth union of one sphere per active influence. Each sphere is
+// optionally elongated backward along its influence's recent motion — sweeping the
+// centre from the current position toward the trailing path turns the blob into a
+// one-sided capsule (a comet head with a smeared tail).
 float map(vec3 p) {
 	float d = 1.0e6;
 	for (int i = 0; i < u_influence_count; i++) {
 		float r = max(u_blob_radius * (u_influence_radius[i] * 0.5), 0.0001);
-		float sph = distance(p, u_influence_pos[i]) - r;
+		vec3 rel = p - u_influence_pos[i];
+		vec3 smear = u_influence_motion[i] * u_motion_stretch;
+		float len = length(smear);
+		if (len > 0.0001) {
+			// Sweep the sphere centre along the smear direction over [0, len]:
+			// clamp the projection so only the tail side elongates (comet, not a
+			// symmetric capsule).
+			vec3 dir = smear / len;
+			rel -= dir * clamp(dot(rel, dir), 0.0, len);
+		}
+		float sph = length(rel) - r;
 		d = smin(d, sph, u_smoothness);
 	}
 	return d;
