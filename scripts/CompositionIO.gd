@@ -33,6 +33,8 @@ static func _schema_to_dict(obj: Object) -> Dictionary:
 			for prop in section["props"]:
 				if prop["type"] == "action" or prop["type"] == "status":
 					continue  # buttons / status readouts carry no value to serialize
+				if not prop.get("serialize", true):
+					continue  # session-only preference (e.g. lock_background)
 				d[prop["name"]] = _encode(prop["type"], obj.get(prop["name"]))
 	return d
 
@@ -44,6 +46,8 @@ static func _dict_to_schema(obj: Object, d: Dictionary) -> void:
 		for prop in section["props"]:
 			if prop["type"] == "action" or prop["type"] == "status":
 				continue
+			if not prop.get("serialize", true):
+				continue  # session-only preference (e.g. lock_background)
 			var pn: String = prop["name"]
 			if d.has(pn):
 				obj.set(pn, _decode(prop["type"], d[pn]))
@@ -95,9 +99,11 @@ static func apply(data: Dictionary, manager: VisualizationManager, camera: Node,
 	for od in data.get("objects", []):
 		create_object(od, manager)
 	_dict_to_schema(camera, data.get("camera", {}))
-	if scene:
+	if scene and not scene.get("lock_background"):
 		# Reset first so a composition with no "scene" block restores the
 		# default white room instead of inheriting the previous bloom/bg.
+		# Skipped entirely when lock_background is on, so the current backdrop
+		# carries across preset/composition loads.
 		if scene.has_method("reset_defaults"):
 			scene.reset_defaults()
 		_dict_to_schema(scene, data.get("scene", {}))

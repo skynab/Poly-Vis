@@ -9,12 +9,18 @@ extends PanelContainer
 ## only on drag_ended so dragging doesn't flood the history.
 class_name ParameterPanel
 
-const PRESET_NAMES := ["Viridis", "Pink-Red-White", "Purple-Yellow", "Green-Teal"]
+const PRESET_NAMES := ["Viridis", "Pink-Red-White", "Purple-Yellow", "Green-Teal",
+	"Magma", "Ice", "Sunset", "Grayscale", "Rainbow"]
 var PRESET_VALUES := [
 	GradientColormap.Preset.VIRIDIS,
 	GradientColormap.Preset.PINK_RED_WHITE,
 	GradientColormap.Preset.PURPLE_YELLOW,
 	GradientColormap.Preset.GREEN_TEAL,
+	GradientColormap.Preset.MAGMA,
+	GradientColormap.Preset.ICE,
+	GradientColormap.Preset.SUNSET,
+	GradientColormap.Preset.GRAYSCALE,
+	GradientColormap.Preset.RAINBOW,
 ]
 
 var _manager: VisualizationManager
@@ -269,6 +275,16 @@ func _refresh_object_list() -> void:
 	if idx >= 0:
 		_obj_selector.select(idx)
 
+## A Transform section (Position XYZ) shown above the selected object's schema
+## controls. Edits the node's `position` directly — position is serialized by
+## CompositionIO on its own (not via any object's param schema), so it isn't part
+## of get_param_schema(); rendering it here gives every managed object a manual
+## XYZ field. The wide range covers off-origin layouts.
+func _add_transform_section(host: VBoxContainer, obj: Node3D) -> void:
+	var body := _add_section(host, "Transform")
+	_add_vector3(body, obj, {"name": "position", "min": -1000.0, "max": 1000.0,
+		"step": 0.05, "hint": "World XYZ position"})
+
 func _on_object_selected(index: int) -> void:
 	if index >= 0 and index < _manager.objects.size():
 		_manager.select(_manager.objects[index])
@@ -278,6 +294,8 @@ func show_object(obj: Node3D) -> void:
 		return
 	for c in _object_host.get_children():
 		c.queue_free()
+	if obj:
+		_add_transform_section(_object_host, obj)
 	if obj and obj.has_method("get_param_schema"):
 		_populate(_object_host, obj, obj.get_param_schema())
 	var idx := _manager.objects.find(obj)
@@ -609,9 +627,9 @@ func _add_vector3(body: VBoxContainer, obj: Object, prop: Dictionary) -> void:
 	var spins: Array[SpinBox] = []
 	for axis in 3:
 		var sb := SpinBox.new()
-		sb.min_value = -100.0
-		sb.max_value = 100.0
-		sb.step = 0.05
+		sb.min_value = prop.get("min", -100.0)
+		sb.max_value = prop.get("max", 100.0)
+		sb.step = prop.get("step", 0.05)
 		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		sb.value = current[axis]
 		row.add_child(sb)

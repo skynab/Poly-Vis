@@ -43,6 +43,11 @@ var skybox_path: String = "": set = set_skybox_path
 var bloom_enabled: bool = false: set = set_bloom_enabled
 ## Glow intensity; particle_brightness drives pixels above the HDR threshold.
 var bloom_intensity: float = 0.8: set = set_bloom_intensity
+## When true the current background is kept across preset/composition loads — the
+## preset's stored "scene" block is ignored — so switching presets isn't a jarring
+## backdrop change. A live session preference (not serialized, not reset by
+## reset_defaults); CompositionIO.apply reads it to gate the scene restore.
+var lock_background: bool = false
 
 # Lazily created sky resources, reused across mode switches.
 var _sky: Sky
@@ -240,6 +245,8 @@ func get_param_schema() -> Array:
 	return [{
 		"title": "Scene",
 		"props": [
+			{"name": "lock_background", "type": "bool", "serialize": false,
+				"hint": "Keep this background when switching presets (ignore the preset's stored background)"},
 			{"name": "background_mode", "type": "enum", "options": ["Color", "Noise", "Skybox", "Aurora"]},
 			{"name": "bg_color", "type": "color"},
 			{"name": "bg_color2", "type": "color", "hint": "Second noise color (Noise mode)"},
