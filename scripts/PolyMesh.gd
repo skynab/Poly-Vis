@@ -556,7 +556,8 @@ func set_translucency(v: float) -> void:
 ## Push influence-field data into the surface shader (Prompt 5.3). Called every
 ## frame by the InfluenceController. Arrays are padded to the shader's max (8).
 func set_influences(count: int, positions: PackedVector3Array, radii: PackedFloat32Array,
-		strengths: PackedFloat32Array, colors: PackedVector3Array) -> void:
+		strengths: PackedFloat32Array, colors: PackedVector3Array,
+		_speeds: PackedFloat32Array = PackedFloat32Array()) -> void:
 	if not _surface_mat:
 		return
 	_surface_mat.set_shader_parameter("u_influence_count", count)

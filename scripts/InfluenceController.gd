@@ -346,18 +346,25 @@ func _push_uniforms() -> void:
 	var radii := PackedFloat32Array()
 	var strengths := PackedFloat32Array()
 	var colors := PackedVector3Array()
+	# Raw tracked speed (world units/sec) per active influence, padded to
+	# MAX_INFLUENCES like the other arrays. PolyTrails reads this for its
+	# motion-reactive width/brightness; other objects ignore it.
+	var speeds := PackedFloat32Array()
 	for i in MAX_INFLUENCES:
 		if i < active.size():
 			var infl := active[i]
+			var spd: float = _speed.get(infl.get_instance_id(), 0.0)
 			positions.append(infl.global_position)
 			radii.append(infl.radius)
-			strengths.append(infl.effective_signed_strength(_speed.get(infl.get_instance_id(), 0.0)))
+			strengths.append(infl.effective_signed_strength(spd))
 			colors.append(Vector3(infl.influence_color.r, infl.influence_color.g, infl.influence_color.b))
+			speeds.append(spd)
 		else:
 			positions.append(Vector3.ZERO)
 			radii.append(0.0)
 			strengths.append(0.0)
 			colors.append(Vector3.ZERO)
+			speeds.append(0.0)
 
 	for o in _manager.objects:
 		if not o.has_method("set_influences"):
@@ -367,9 +374,9 @@ func _push_uniforms() -> void:
 		if o is PolyParticles and (o as PolyParticles).follow_influence:
 			if not active.is_empty():
 				o.global_position = active[0].global_position
-			o.set_influences(0, positions, radii, strengths, colors)
+			o.set_influences(0, positions, radii, strengths, colors, speeds)
 		else:
-			o.set_influences(active.size(), positions, radii, strengths, colors)
+			o.set_influences(active.size(), positions, radii, strengths, colors, speeds)
 
 # --- proximity events (Prompt 5.4) -----------------------------------------
 func _update_proximity() -> void:

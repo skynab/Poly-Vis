@@ -512,7 +512,8 @@ func set_color_max(v: float) -> void:
 
 ## Push influence-field data into the particle shader (Prompt 5.2).
 func set_influences(infl_count: int, positions: PackedVector3Array, radii: PackedFloat32Array,
-		strengths: PackedFloat32Array, colors: PackedVector3Array) -> void:
+		strengths: PackedFloat32Array, colors: PackedVector3Array,
+		_speeds: PackedFloat32Array = PackedFloat32Array()) -> void:
 	if not _mat:
 		return
 	_mat.set_shader_parameter("u_influence_count", infl_count)

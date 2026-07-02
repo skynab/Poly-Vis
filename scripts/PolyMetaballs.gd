@@ -118,7 +118,8 @@ func _apply_color_and_polish() -> void:
 ## Push influence-field data into the shader — the same fixed-size (MAX_INFLUENCES)
 ## arrays as the mesh/cloth shaders. Each active influence seeds one blob.
 func set_influences(count: int, positions: PackedVector3Array, radii: PackedFloat32Array,
-		strengths: PackedFloat32Array, colors: PackedVector3Array) -> void:
+		strengths: PackedFloat32Array, colors: PackedVector3Array,
+		_speeds: PackedFloat32Array = PackedFloat32Array()) -> void:
 	if _mat == null:
 		return
 	_mat.set_shader_parameter("u_influence_count", count)
